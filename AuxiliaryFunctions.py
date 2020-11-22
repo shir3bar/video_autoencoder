@@ -5,7 +5,7 @@ import seaborn as sns
 import torch
 import cv2
 import os
-from torchvision import io
+import io
 
 
 def get_plottable_frame(frame):
