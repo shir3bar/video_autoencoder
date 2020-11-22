@@ -1,0 +1,69 @@
+# Custom Dataset, adapted from the following sources:
+# https://pytorch.org/tutorials/recipes/recipes/custom_dataset_transforms_loader.html
+# https://github.com/MohsenFayyaz89/PyTorch_Video_Dataset/blob/master/GeneralVideoDataset.py
+# https://github.com/hassony2/torch_videovision/blob/master/torchvideotransforms/volume_transforms.py
+import torch
+from torch.utils.data import Dataset
+import os
+import cv2
+import numpy as np
+
+
+class VideoDataset(Dataset):
+    def __init__(self, directory, num_frames, color_channels=1, transform=None,
+                 div_255=True, swim_sample=False):
+        self.dir = directory
+        self.transform = transform
+        self.num_frames = num_frames
+        self.color_channels = color_channels
+        self.div_255 = div_255
+        self.file_paths = []
+        self.swim_sample = swim_sample
+        self.load_file_names()
+
+    def load_file_names(self):
+        for root, directories, files in os.walk(self.dir):
+            for filename in files:
+                self.register_filename(root, filename)
+            if self.swim_sample:
+                for i, d in enumerate(directories):
+                    if not d.startswith('Swimming_vids'):
+                        del directories[i]
+
+    def register_filename(self, root, filename):
+        if filename.endswith('.avi'):
+            filepath = os.path.join(root, filename)  # Assemble the full path
+            self.file_paths.append(filepath)  # Add it to the list
+
+    def __len__(self):
+        return len(self.file_paths)
+
+    def __getitem__(self,idx):
+        if torch.is_tensor(idx):
+            idx=idx.tolist()
+        # get a tensor representing the video, dimensions will be TxHxWxC
+        cap = cv2.VideoCapture(self.file_paths[idx])
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        frames = np.zeros((self.num_frames, height, width, self.color_channels))
+        for i in range(self.num_frames):
+            ret, frame = cap.read()
+            if ret:
+                # Convert from BGR to either Grayscale or RGB:
+                if self.color_channels == 1:
+                    frame=cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    frame = frame[:, :, np.newaxis]
+                else:
+                    frame=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                if self.div_255:
+                    frame = frame/255
+                frames[i, :, :, :] = frame
+        frames = np.stack(frames)
+        cap.release()
+        cv2.destroyAllWindows()
+        # check if the video has the required amount of frames:
+        assert frames.shape[0] == self.num_frames
+        sample = {'clip': frames}
+        if self.transform:
+            sample = self.transform(sample)
+        return sample
