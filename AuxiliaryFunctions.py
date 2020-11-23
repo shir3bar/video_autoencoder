@@ -104,7 +104,7 @@ def split_clip(load_path,save_path,num_frames,fps=30):
 # Training auxiliary functions:
 
 def save_checkpoint(model,optimizer,epoch,loss,directory='/content/drive/My Drive/PhD/Swim_samples',name='model'):
-    path=directory+f'/{name}_epoch{epoch}.pt'
+    path=os.path.join(directory,f'{name}_epoch{epoch}.pt')
     torch.save({
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
