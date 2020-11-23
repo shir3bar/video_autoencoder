@@ -123,5 +123,6 @@ def save_recon(reconstruction,model_name,epoch,directory):
     img=fig_to_img(fig)
     plt.close(fig)
     filename=f'{model_name}_epoch{epoch}.jpg'
-    cv2.imwrite(os.path.join(directory, filename), img)
+    filepath = os.path.join(directory, filename)
+    cv2.imwrite(filepath, img)
 
