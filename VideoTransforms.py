@@ -32,11 +32,9 @@ class Rescale:
             new_h, new_w = self.output_size
         new_h, new_w = int(new_h), int(new_w)
         frames = np.zeros((num_frames, new_h, new_w, num_channels ))
-        print(frames.shape)
         for i, frame in enumerate(clip):
-            frame = cv2.resize(frame, dsize=(new_h, new_w),
+            frame = cv2.resize(frame, dsize=(new_w, new_h),
                                interpolation=self.interpolation)
-            print(frame.shape)
             if frame.ndim == 2:
                 frame = frame[:, :, np.newaxis]
             frames[i, :, :, :] = frame
