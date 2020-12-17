@@ -37,7 +37,7 @@ def one_frame_heatmap(input_frame,output_frame):
     return np.squeeze(heat_map)
 
 
-def heat_video(input_vids, output_vids, directory, fps=30,idx=0):
+def heat_video(input_vids, output_vids, directory,filename, fps=30, idx=0,batch_size=4):
     fourcc = cv2.VideoWriter_fourcc(*'MJPG')
     num_vids, color_channel, num_frames, h, w = input_vids.shape
     print(num_frames)
@@ -46,7 +46,7 @@ def heat_video(input_vids, output_vids, directory, fps=30,idx=0):
     except:
         pass
     for vid_num in range(num_vids):
-        movie_path = directory+f'heatmap_{4*idx+vid_num}.avi'
+        movie_path = directory+f'heatmap_{filename}.avi'#{batch_size*idx+vid_num}.avi'
         print(movie_path)
         vid_writer = cv2.VideoWriter(movie_path, fourcc, fps, (1080, 720), True)
         for frame_num in range(num_frames):
