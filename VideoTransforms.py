@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 import torch
 import PIL
+import random
 
 class RandomVerticalFlip(object):
     """Vertically flip an array of given images aka clip randomly with a given probability.
@@ -23,16 +24,16 @@ class RandomVerticalFlip(object):
         Returns:
         PIL.Image or numpy.ndarray: Randomly flipped clip
         """
+
         clip = sample['clip']
         if random.random() < self.p:
             if isinstance(clip, np.ndarray):
-                return [np.flipud(img) for img in clip]
-            elif isinstance(clip, PIL.Image.Image):
-                return [img.transpose(PIL.Image.FLIP_TOP_BOTTOM) for img in clip]
+                frames=[np.flipud(img) for img in clip]
             else:
                 raise TypeError('Expected numpy.ndarray or PIL.Image' +
-                                ' but got list of {0}'.format(type(clip[0])))
-        return clip
+                                ' but got list of {0}'.format(type(clip)))
+            clip = np.stack(frames)
+        return {'clip': clip}
 
     def __repr__(self):
         return self.__class__.__name__ + '(p={})'.format(self.p)
@@ -58,15 +59,12 @@ class RandomHorizontalFlip(object):
         clip = sample['clip']
         if random.random() < self.p:
             if isinstance(clip, np.ndarray):
-                return [np.fliplr(img) for img in clip]
-            elif isinstance(clip, PIL.Image.Image):
-                return [
-                    img.transpose(PIL.Image.FLIP_LEFT_RIGHT) for img in clip
-                ]
+                frames = [np.fliplr(img) for img in clip]
             else:
                 raise TypeError('Expected numpy.ndarray or PIL.Image' +
-                                ' but got list of {0}'.format(type(clip[0])))
-        return clip
+                                ' but got list of {0}'.format(type(clip)))
+            clip = np.stack(frames)
+        return {'clip': clip}
 
     def __repr__(self):
         return self.__class__.__name__ + '(p={})'.format(self.p)
