@@ -7,7 +7,7 @@ from skimage import exposure
 import PIL
 import random
 
-class RandomVerticalFlip(object):
+class RandomVerticalFlip():
     """Vertically flip an array of given images aka clip randomly with a given probability.
     Args:
         p (float): probability of the image being flipped. Default value is 0.5
@@ -39,7 +39,8 @@ class RandomVerticalFlip(object):
     def __repr__(self):
         return self.__class__.__name__ + '(p={})'.format(self.p)
 
-class RandomHorizontalFlip(object):
+
+class RandomHorizontalFlip():
     """Horizontally flip an array of given images aka clip randomly with a given probability.
     Args:
         p (float): probability of the image being flipped. Default value is 0.5
@@ -108,6 +109,7 @@ class Rescale:
         clip = np.stack(frames)
         return {'clip': clip}
 
+
 class MatchHistograms:
     """ Match the histograms of all frames in the video to the first frame, to stabilize lighting flicker"""
     def __call__(self,sample):
@@ -125,7 +127,6 @@ class MatchHistograms:
             frames[i+1, :, :, :] = matched
         clip = np.stack(frames)
         return {'clip': clip}
-
 
 
 class ToTensor:
