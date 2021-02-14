@@ -3,7 +3,7 @@
 import cv2
 import numpy as np
 import torch
-
+from skimage import exposure
 
 class Rescale:
     """Rescale the image in a sample to a given size.
@@ -40,6 +40,25 @@ class Rescale:
             frames[i, :, :, :] = frame
         clip = np.stack(frames)
         return {'clip': clip}
+
+class MatchHistograms:
+    """ Match the histograms of all frames in the video to the first frame, to stabilize lighting flicker"""
+    def __call__(self,sample):
+        clip = sample["clip"]
+        if torch.is_tensor(clip):
+            clip = clip.cpu().numpy()
+        frames = np.zeros_like(clip)
+        ref = clip[0,...]
+        frames[0,...] = ref
+        multichannel = ref.shape[-1] == 3
+        for i, frame in enumerate(clip[1:, ...]):
+            matched = exposure.match_histograms(frame, ref, multichannel=multichannel)
+            if frame.ndim == 2:
+                matched = matched[:, :, np.newaxis]
+            frames[i+1, :, :, :] = matched
+        clip = np.stack(frames)
+        return {'clip': clip}
+
 
 
 class ToTensor:
