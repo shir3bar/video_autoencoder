@@ -4,9 +4,76 @@ import cv2
 import numpy as np
 import torch
 from skimage import exposure
+import PIL
+import random
+
+class RandomVerticalFlip(object):
+    """Vertically flip an array of given images aka clip randomly with a given probability.
+    Args:
+        p (float): probability of the image being flipped. Default value is 0.5
+    """
+
+    def __init__(self, p=0.5):
+        self.p = p
+
+    def __call__(self, sample):
+        """
+        Randomly flip the clip vertically
+        Args:
+        img (PIL.Image or numpy.ndarray): List of images to be cropped
+        in format (h, w, c) in numpy.ndarray
+        Returns:
+        PIL.Image or numpy.ndarray: Randomly flipped clip
+        """
+
+        clip = sample['clip']
+        if random.random() < self.p:
+            if isinstance(clip, np.ndarray):
+                frames=[np.flipud(img) for img in clip]
+            else:
+                raise TypeError('Expected numpy.ndarray or PIL.Image' +
+                                ' but got list of {0}'.format(type(clip)))
+            clip = np.stack(frames)
+        return {'clip': clip}
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(p={})'.format(self.p)
+
+class RandomHorizontalFlip(object):
+    """Horizontally flip an array of given images aka clip randomly with a given probability.
+    Args:
+        p (float): probability of the image being flipped. Default value is 0.5
+    """
+
+    def __init__(self, p=0.5):
+        self.p = p
+
+    def __call__(self, sample):
+        """
+        Randomly flip the clip horizontally
+        Args:
+        img (PIL.Image or numpy.ndarray): List of images to be cropped
+        in format (h, w, c) in numpy.ndarray
+        Returns:
+        PIL.Image or numpy.ndarray: Randomly flipped clip
+        """
+        clip = sample['clip']
+        if random.random() < self.p:
+            if isinstance(clip, np.ndarray):
+                frames = [np.fliplr(img) for img in clip]
+            else:
+                raise TypeError('Expected numpy.ndarray or PIL.Image' +
+                                ' but got list of {0}'.format(type(clip)))
+            clip = np.stack(frames)
+        return {'clip': clip}
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(p={})'.format(self.p)
+
 
 class Rescale:
-    """Rescale the image in a sample to a given size.
+    """
+    Rescale the image in a sample to a given size.
 
     Args:
     output_size (tuple or int): Desired output size. If tuple, output is
@@ -67,8 +134,8 @@ class ToTensor:
         clip = sample["clip"]
         assert isinstance(clip, np.ndarray), f'Expected numpy array got {type(clip)}'
         clip = np.transpose(clip, (3,0,1,2))
-        # Assume proper representation for video in tensor is TxHxWxC
-        # (time, height, width, color channels)
+        # Assume proper representation for video in tensor is CXTxHxW
+        # (color channels, time, height, width)
         clip = torch.from_numpy(clip)
         if not isinstance(clip, torch.FloatTensor):
           clip = clip.float()
