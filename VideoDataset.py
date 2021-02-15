@@ -11,24 +11,20 @@ import numpy as np
 
 class VideoDataset(Dataset):
     def __init__(self, directory, num_frames, color_channels=1, transform=None,
-                 div_255=True, swim_sample=False):
+                 div_255=True, match_hists=False):
         self.dir = directory
         self.transform = transform
         self.num_frames = num_frames
         self.color_channels = color_channels
         self.div_255 = div_255
         self.file_paths = []
-        self.swim_sample = swim_sample
+        self.match_hists = match_hists
         self.load_file_names()
 
     def load_file_names(self):
         for root, directories, files in os.walk(self.dir):
             for filename in files:
                 self.register_filename(root, filename)
-            if self.swim_sample:
-                for i, d in enumerate(directories):
-                    if not d.startswith('Swimming_vids'):
-                        del directories[i]
 
     def register_filename(self, root, filename):
         if filename.endswith('.avi'):
@@ -57,6 +53,11 @@ class VideoDataset(Dataset):
                     frame=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 if self.div_255:
                     frame = frame/255
+                if self.match_hists:
+                    if i==0:
+                        ref = frame.copy()
+                    else:
+                        frame = exposure.match_histograms(frame, ref, multichannel=(self.color_channels>1))
                 frames[i, :, :, :] = frame
         frames = np.stack(frames)
         cap.release()
