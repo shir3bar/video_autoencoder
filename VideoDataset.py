@@ -46,11 +46,12 @@ class VideoDataset(Dataset):
         for i in range(self.num_frames):
             ret, frame = cap.read()
             if ret:
-                # Convert from BGR to either Grayscale or RGB:
+                # Convert from BGR to either Grayscale or RGB if input is an image:
+                # optic flow will remain as is with two "color" channels
                 if self.color_channels == 1:
                     frame=cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                     frame = frame[:, :, np.newaxis]
-                else:
+                elif self.color_channels == 3:
                     frame=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 if self.div_255:
                     frame = frame/255
