@@ -7,6 +7,7 @@ from torch.utils.data import Dataset
 import os
 import cv2
 import numpy as np
+from skimage import exposure
 
 
 class VideoDataset(Dataset):
