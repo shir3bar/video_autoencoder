@@ -10,7 +10,8 @@ import io
 
 def get_plottable_frame(frame):
     """ Get a tensor of shape CxHxW and transform it into a numpy array of HxWxC"""
-    frame = frame.numpy()
+    if torch.is_tensor(frame):
+        frame = frame.numpy()
     frame = np.transpose(frame, (1, 2, 0))
     # if num channels == 1 get rid of the extra dimension:
     frame = np.squeeze(frame)

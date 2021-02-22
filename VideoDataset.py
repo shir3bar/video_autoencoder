@@ -53,6 +53,8 @@ class VideoDataset(Dataset):
                     frame = frame[:, :, np.newaxis]
                 elif self.color_channels == 3:
                     frame=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                else:
+                    frame = frame[:,:,:-1] # in optic flow, the last channel is artificially added
                 if self.div_255:
                     frame = frame/255
                 if self.match_hists:
