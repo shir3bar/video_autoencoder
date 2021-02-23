@@ -73,7 +73,8 @@ class ModelEvaluationPipeline:
 
     def make_subdirs(self):
         if os.path.exists(self.save_dir):
-            os.mkdir(self.save_dir+datetime.now().strftime("%d%m%y"))
+            self.save_dir += datetime.now().strftime("%d%m%y")
+            os.mkdir(self.save_dir)
         os.mkdir(os.path.join(self.save_dir,'checkpoints'))
         os.mkdir(self.results_dir)
         os.mkdir(os.path.join(self.results_dir,'feed'))
