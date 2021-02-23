@@ -72,8 +72,8 @@ class ModelEvaluationPipeline:
 
     def make_subdirs(self):
         if os.path.exists(self.save_dir):
-            self.save_dir += datetime.now().strftime("%d%m%y")
-            os.mkdir(self.save_dir)
+            self.save_dir += self.hyperparams['model_name']+datetime.now().strftime("%d%m%y")
+        os.mkdir(self.save_dir)
         self.results_dir = os.path.join(self.save_dir, 'reconstructions')
         os.mkdir(os.path.join(self.save_dir,'checkpoints'))
         os.mkdir(self.results_dir)
@@ -138,8 +138,8 @@ class ModelEvaluationPipeline:
             save_checkpoint(self.model, optimizer, epoch, train_loss=self.train_losses[epoch],
                             scheduler_state_dict=scheduler.state_dict(),
                             val_loss=self.val_losses[epoch], directory=directory,
-                            name=self.hyperparams['model_type'])
-            save_recon(reconstruction, self.hyperparams['model_type'], epoch, directory)
+                            name=self.hyperparams['model_name'])
+            save_recon(reconstruction, self.hyperparams['model_name'], epoch, directory)
 
     def plot_loss(self,train_time):
         with plt.style.context('seaborn-poster'):
@@ -265,7 +265,7 @@ class ModelEvaluationPipeline:
         df.to_csv(os.path.join(self.save_dir,'hyperparameters.csv'))
         file = open(os.path.join(self.save_dir,'validation_indexs.txt'),mode='+w')
         file.write(self.val_ds.dataset.filepaths)
-        file.close
+        file.close()
 
 
 
