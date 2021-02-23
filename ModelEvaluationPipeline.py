@@ -136,8 +136,11 @@ class ModelEvaluationPipeline:
             # step the scheduler
             if self.hyperparams['schedule']:
                 scheduler.step(self.val_losses[epoch])
+                sch=scheduler.state_dict()
+            else:
+                sch=None
             save_checkpoint(self.model, optimizer, epoch, train_loss=self.train_losses[epoch],
-                            scheduler_state_dict=scheduler.state_dict(),
+                            scheduler_state_dict=sch,
                             val_loss=self.val_losses[epoch], directory=directory,
                             name=self.hyperparams['model_name'])
             save_recon(reconstruction, self.hyperparams['model_name'], epoch, directory)
