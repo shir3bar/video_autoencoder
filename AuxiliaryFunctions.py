@@ -6,6 +6,8 @@ import torch
 import cv2
 import os
 import io
+from PIL import Image, ImageSequence
+from moviepy.editor import ImageSequenceClip
 
 
 def get_plottable_frame(frame):
@@ -130,3 +132,63 @@ def save_recon(reconstruction,model_name,epoch,directory):
     filepath = os.path.join(directory, filename)
     cv2.imwrite(filepath, img)
 
+def error_by_frame(error, savedir=''):
+    sum_of_error = torch.squeeze(error)
+    if sum_of_error.shape[0] == 2:
+        sum_of_error = np.transpose(sum_of_error, (1, 2, 3, 0))
+        sum_of_error = sum_of_error.sum(axis=1).sum(axis=1).sum(axis=1)
+    else:
+        sum_of_error = sum_of_error.sum(axis=1).sum(axis=1)
+    with plt.style.context('seaborn-poster'):
+        fig = plt.figure(figsize=(10, 7))
+        plt.plot(range(len(sum_of_error)), sum_of_error)
+        plt.xlabel('#Frame')
+        plt.ylabel('Sum of Pixel Error')
+        plt.title('Sum of Pixel Error by Frame')
+        if len(savedir) > 0:
+            plt.savefig(savedir)
+        plt.close(fig)
+    return sum_of_error, fig
+
+
+def write_movie(recon, directory, samp_id, heatmap=False,color=False):
+    fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+    if heatmap:
+        size = (830, 585)
+    else:
+        size = (256, 256)
+    video_writer = cv2.VideoWriter(os.path.join(directory, f'l1_recon_{samp_id}'), fourcc, 30, size, color)
+    for i in range(recon.shape[2]):
+        frame = (get_plottable_frame(recon[0, :, i, :, :]) * 255).astype(np.uint8)
+        if heatmap:
+            fig = plt.figure()
+            sns.heatmap(frame / 255, vmin=0, vmax=1)
+            plt.axis('off')
+            frame = fig_to_img(fig)[65:650, 120:950, :]
+            plt.close(fig)
+        video_writer.write(frame)
+    video_writer.release()
+
+
+def write_gif_fish(recon,directory,samp_id, heatmap=False):
+    num_frames = recon.shape[2]
+    if heatmap:
+        size=(num_frames,585,830,3)
+    elif recon.shape[1]>1:
+        size=(num_frames,256,256,3)
+    else:
+        size=(num_frames,256,256,1)
+    frames = np.zeros(size)
+    for i in range(num_frames):
+        frame = (get_plottable_frame(recon[0,:,i,:,:])*255).astype(np.uint8)
+        if heatmap:
+                fig = plt.figure()
+                sns.heatmap(frame/255, vmin=0, vmax=1)
+                plt.axis('off')
+                frame = fig_to_img(fig)[65:650,120:950,:]
+                plt.close(fig)
+        elif frame.ndim==2:
+            frame = frame[:,:,np.newaxis]
+        frames[i,:,:,:] = frame
+    clip = ImageSequenceClip(list(frames), fps=20)
+    clip.write_gif(os.path.join(directory,f'l1_recon_{samp_id}'), fps=10, verbose=False, logger=None)
