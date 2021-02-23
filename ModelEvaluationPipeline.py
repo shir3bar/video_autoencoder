@@ -290,7 +290,7 @@ if __name__ == '__main__':
     parser.add_argument('-color_channels', type=int, default=1, choices=[1,2,3],
                         help='choose #color channels in input clips, 2 is for optic flow data')
     parser.add_argument('-no_eval','--dont_evaluate',action='store_true',help='raise flag to avoid evaluating the model')
-    parser.add_argument('-chkpt','--checkpoint',help='enter checkpoint path for loading')
+    parser.add_argument('-chkpt','--checkpoint', default=[], help='enter checkpoint path for loading')
     parser.add_argument("-v", '--verbose', action='store_true')
     args = parser.parse_args()
     train_transforms = []
