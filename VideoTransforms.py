@@ -7,6 +7,7 @@ from skimage import exposure
 import PIL
 import random
 
+
 class RandomVerticalFlip():
     """Vertically flip an array of given images aka clip randomly with a given probability.
     Args:
@@ -37,7 +38,7 @@ class RandomVerticalFlip():
         return {'clip': clip}
 
     def __repr__(self):
-        return self.__class__.__name__ + '(p={})'.format(self.p)
+        return f'{self.__class__.__name__}(p={self.p})'
 
 
 class RandomHorizontalFlip():
@@ -69,7 +70,7 @@ class RandomHorizontalFlip():
         return {'clip': clip}
 
     def __repr__(self):
-        return self.__class__.__name__ + '(p={})'.format(self.p)
+        return f'{self.__class__.__name__ }(p={self.p})'
 
 
 class Rescale:
@@ -108,6 +109,8 @@ class Rescale:
             frames[i, :, :, :] = frame
         clip = np.stack(frames)
         return {'clip': clip}
+    def __repr__(self):
+        return f'Rescale({self.output_size})'
 
 
 class MatchHistograms:
@@ -127,6 +130,8 @@ class MatchHistograms:
             frames[i+1, :, :, :] = matched
         clip = np.stack(frames)
         return {'clip': clip}
+    def __repr__(self):
+        return 'MatchHistograms'
 
 
 class ToTensor:
@@ -141,4 +146,6 @@ class ToTensor:
         if not isinstance(clip, torch.FloatTensor):
           clip = clip.float()
         return {'clip': clip}
+    def __repr__(self):
+        return 'ToTensor'
 
