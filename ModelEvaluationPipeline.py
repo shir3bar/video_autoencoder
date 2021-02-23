@@ -63,8 +63,8 @@ class ModelEvaluationPipeline:
                                       shuffle=False, num_workers=4)
         self.model = model
         self.save_dir = save_dir
-        self.make_subdirs()
         self.hyperparams = hyperparams
+        self.make_subdirs()
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.model.to(self.device)
         self.train_losses = {}
