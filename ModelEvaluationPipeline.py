@@ -46,10 +46,10 @@ class ModelEvaluationPipeline:
                           transform=transforms.Compose(hyperparams['train_transforms']),
                           match_hists=hyperparams['match_hists'])
         num_valid = int(0.15 / 0.85 * len(ds)) # set the validation to be 15% of original dataset size
-        self.train_ds, self.valid_ds = torch.utils.data.random_split(ds, (len(ds) - num_valid, num_valid))
+        self.train_ds, self.val_ds = torch.utils.data.random_split(ds, (len(ds) - num_valid, num_valid))
         self.train_loader = DataLoader(self.train_ds, batch_size=hyperparams['batch_size'],
                                        shuffle=True, num_workers=12)
-        self.valid_loader = DataLoader(self.valid_ds, batch_size=hyperparams['batch_size'],
+        self.val_loader = DataLoader(self.val_ds, batch_size=hyperparams['batch_size'],
                                        shuffle=False, num_workers=4)
         self.test_ds = VideoDataset(self.test_dir, num_frames=hyperparams['num_frames'],
                                     transform=transforms.Compose(hyperparams['test_transforms']),
@@ -262,6 +262,10 @@ class ModelEvaluationPipeline:
             self.evaluate_performance()
         df = pd.DataFrame(self.hyperparams)
         df.to_csv(os.path.join(self.save_dir,'hyperparameters.csv'))
+        file = open(os.path.join(self.save_dir,'validation_indexs.txt'),mode='+w')
+        file.write(self.val_ds.dataset.filepaths)
+        file.close
+
 
 
 if __name__ == '__main__':
