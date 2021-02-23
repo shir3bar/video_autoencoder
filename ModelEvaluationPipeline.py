@@ -72,7 +72,7 @@ class ModelEvaluationPipeline:
 
     def make_subdirs(self):
         if os.path.exists(self.save_dir):
-            self.save_dir += self.hyperparams['model_name']+datetime.now().strftime("%d%m%y")
+            self.save_dir += self.hyperparams['model_name']+datetime.now().strftime("%H%M%S")
         os.mkdir(self.save_dir)
         self.results_dir = os.path.join(self.save_dir, 'reconstructions')
         os.mkdir(os.path.join(self.save_dir,'checkpoints'))
