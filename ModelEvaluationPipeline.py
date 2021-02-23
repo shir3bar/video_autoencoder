@@ -63,7 +63,6 @@ class ModelEvaluationPipeline:
                                       shuffle=False, num_workers=4)
         self.model = model
         self.save_dir = save_dir
-        self.results_dir = os.path.join(self.save_dir, 'reconstructions')
         self.make_subdirs()
         self.hyperparams = hyperparams
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -75,6 +74,7 @@ class ModelEvaluationPipeline:
         if os.path.exists(self.save_dir):
             self.save_dir += datetime.now().strftime("%d%m%y")
             os.mkdir(self.save_dir)
+        self.results_dir = os.path.join(self.save_dir, 'reconstructions')
         os.mkdir(os.path.join(self.save_dir,'checkpoints'))
         os.mkdir(self.results_dir)
         os.mkdir(os.path.join(self.results_dir,'feed'))
