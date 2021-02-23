@@ -134,7 +134,8 @@ class ModelEvaluationPipeline:
             if verbose:
                 print(f'Train loss: {self.train_losses[epoch]}, Validation loss: {self.val_losses[epoch]}')
             # step the scheduler
-            scheduler.step(self.val_losses[epoch])
+            if self.hyperparams['schedule']:
+                scheduler.step(self.val_losses[epoch])
             save_checkpoint(self.model, optimizer, epoch, train_loss=self.train_losses[epoch],
                             scheduler_state_dict=scheduler.state_dict(),
                             val_loss=self.val_losses[epoch], directory=directory,
