@@ -53,10 +53,10 @@ class ModelEvaluationPipeline:
                                        shuffle=False, num_workers=4)
         self.test_ds = VideoDataset(self.test_dir, num_frames=hyperparams['num_frames'],
                                     transform=transforms.Compose(hyperparams['test_transforms']),
-                                    match_hists=hyperparams['match_hist'])
+                                    match_hists=hyperparams['match_hists'])
         self.feed_ds = VideoDataset(self.feed_dir, num_frames=hyperparams['num_frames'],
                                     transform=transforms.Compose(hyperparams['test_transforms']),
-                                    match_hists=hyperparams['match_hist'])
+                                    match_hists=hyperparams['match_hists'])
         self.test_loader = DataLoader(self.test_ds, batch_size=1,
                                       shuffle=False, num_workers=4)
         self.feed_loader = DataLoader(self.feed_ds, batch_size=1,
@@ -309,6 +309,7 @@ if __name__ == '__main__':
         hyperparameters[param] = vars(args)[param]
     hyperparameters['train_transforms'] = train_transforms
     hyperparameters['test_transforms'] = test_transforms
+    print(args)
     model = Net(color_channels=args.color_channels)
     pipeline = ModelEvaluationPipeline(model,args.train_dir,args.test_dir,args.feed_dir,args.save_dir,hyperparameters)
     pipeline(evaluate=(not args.dont_evaluate), checkpoint=args.checkpoint, verbose=args.verbose)
