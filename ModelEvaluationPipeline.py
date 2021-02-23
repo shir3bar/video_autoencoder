@@ -44,7 +44,7 @@ class ModelEvaluationPipeline:
         self.feed_dir = feed_dir
         ds = VideoDataset(self.train_dir, num_frames=hyperparams['num_frames'],
                           transform=transforms.Compose(hyperparams['train_transforms']),
-                          match_hists=hyperparams['match_hists'])
+                          match_hists=hyperparams['match_hists'],color_channels=hyperparams['color_channels'])
         num_valid = int(0.15 / 0.85 * len(ds)) # set the validation to be 15% of original dataset size
         self.train_ds, self.val_ds = torch.utils.data.random_split(ds, (len(ds) - num_valid, num_valid))
         self.train_loader = DataLoader(self.train_ds, batch_size=hyperparams['batch_size'],
@@ -53,10 +53,10 @@ class ModelEvaluationPipeline:
                                        shuffle=False, num_workers=4)
         self.test_ds = VideoDataset(self.test_dir, num_frames=hyperparams['num_frames'],
                                     transform=transforms.Compose(hyperparams['test_transforms']),
-                                    match_hists=hyperparams['match_hists'])
+                                    match_hists=hyperparams['match_hists'],color_channels=hyperparams['color_channels'])
         self.feed_ds = VideoDataset(self.feed_dir, num_frames=hyperparams['num_frames'],
                                     transform=transforms.Compose(hyperparams['test_transforms']),
-                                    match_hists=hyperparams['match_hists'])
+                                    match_hists=hyperparams['match_hists'],color_channels=hyperparams['color_channels'])
         self.test_loader = DataLoader(self.test_ds, batch_size=1,
                                       shuffle=False, num_workers=4)
         self.feed_loader = DataLoader(self.feed_ds, batch_size=1,
@@ -174,6 +174,7 @@ class ModelEvaluationPipeline:
         with torch.no_grad():
             for i, batch in enumerate(dataloader):
                 clip = batch['clip']
+                clip.to(self.device)
                 prediction = self.model(clip)
                 vidpath = dataloader.dataset.file_paths[i]
                 vidname = os.path.basename(vidpath)
