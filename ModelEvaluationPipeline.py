@@ -44,7 +44,7 @@ class ModelEvaluationPipeline:
         self.feed_dir = feed_dir
         ds = VideoDataset(self.train_dir, num_frames=hyperparams['num_frames'],
                           transform=transforms.Compose(hyperparams['train_transforms']),
-                          match_hists=hyperparams['match_hist'])
+                          match_hists=hyperparams['match_hists'])
         num_valid = int(0.15 / 0.85 * len(ds)) # set the validation to be 15% of original dataset size
         self.train_ds, self.valid_ds = torch.utils.data.random_split(ds, (len(ds) - num_valid, num_valid))
         self.train_loader = DataLoader(self.train_ds, batch_size=hyperparams['batch_size'],
