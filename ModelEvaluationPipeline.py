@@ -173,8 +173,7 @@ class ModelEvaluationPipeline:
         df = pd.DataFrame({column: [] for column in column_names})
         with torch.no_grad():
             for i, batch in enumerate(dataloader):
-                clip = batch['clip']
-                clip.to(self.device)
+                clip = batch['clip'].to(self.device)
                 prediction = self.model(clip)
                 vidpath = dataloader.dataset.file_paths[i]
                 vidname = os.path.basename(vidpath)
