@@ -187,10 +187,10 @@ class ModelEvaluationPipeline:
                 gifname = f"{''.join(vidname.split('.')[:-1])}.gif"
                 error_by_frame(error, os.path.join(self.results_dir, category, 'sum_error_plots', errorname))
                 if movie:
-                    write_movie(prediction,os.path.join(self.results_dir, category),vidname)
+                    write_movie(prediction.cpu(),os.path.join(self.results_dir, category),vidname)
                 else:
                     #write_gif_fish(clip, os.path.join(self.results_dir, category, 'original'), gifname)
-                    write_gif_fish(prediction, os.path.join(self.results_dir, category), gifname)
+                    write_gif_fish(prediction.cpu(), os.path.join(self.results_dir, category), gifname)
             df.to_csv(os.path.join(self.results_dir, f'errors{category}.csv'))
         return df
 
