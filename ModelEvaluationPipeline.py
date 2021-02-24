@@ -1,10 +1,7 @@
 from Net import Net
 import argparse
-import torch
 import torch.nn as nn
 import pandas as pd
-import numpy as np
-import cv2
 from AuxiliaryFunctions import save_checkpoint, save_recon, error_by_frame,write_gif_fish,write_movie
 from VideoDataset import VideoDataset
 from VideoTransforms import *
@@ -12,19 +9,10 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from timeit import default_timer as timer
 from sklearn.metrics import auc
-from moviepy.editor import ImageSequenceClip
-import shutil
-import seaborn as sns
-from PIL import Image, ImageSequence
-from pathlib import Path
 from datetime import datetime
 import matplotlib.pyplot as plt
 import os
-from pathlib import Path, PureWindowsPath
-from collections import OrderedDict
-from matplotlib.ticker import (MultipleLocator, FormatStrFormatter,
-                               AutoMinorLocator)
-import pickle
+
 
 class ModelEvaluationPipeline:
     def __init__(self, model, train_folder,test_folder,feed_dir,save_dir,hyperparams):#num_frames,batch_size,learning_rate,train_transforms,test_transforms,match_hist=False):
@@ -268,7 +256,7 @@ class ModelEvaluationPipeline:
         df = pd.DataFrame(self.hyperparams)
         df.to_csv(os.path.join(self.save_dir,'hyperparameters.csv'))
         file = open(os.path.join(self.save_dir,'validation_indexs.txt'),mode='+w')
-        file.write(self.val_ds.dataset.file_paths)
+        file.write('\n'.join(self.val_ds.dataset.file_paths))
         file.close()
 
 
