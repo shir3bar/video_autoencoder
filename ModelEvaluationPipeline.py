@@ -253,7 +253,7 @@ class ModelEvaluationPipeline:
         self.plot_loss(train_time)
         if evaluate:
             self.evaluate_performance()
-        df = pd.DataFrame(self.hyperparams)
+        df = pd.DataFrame([self.hyperparams])
         df.to_csv(os.path.join(self.save_dir,'hyperparameters.csv'))
         file = open(os.path.join(self.save_dir,'validation_indexs.txt'),mode='+w')
         file.write('\n'.join(self.val_ds.dataset.file_paths))
