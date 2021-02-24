@@ -143,7 +143,7 @@ class ModelEvaluationPipeline:
             plt.ylabel('loss')
             plt.title(f'{self.hyperparams["loss_func"]} Loss Adam Optimizer With Weight Decay - \n '
                       f'lr:{self.hyperparams["learning_rate"]}, {self.hyperparams["num_frames"]} frames, '
-                      f'training time: {train_time/3600} hrs')
+                      f'training time: {train_time/3600:.2f} hrs')
             plt.savefig(os.path.join(self.save_dir,'ds_lossvsepoch.png'))
             plt.close()
 
@@ -189,7 +189,7 @@ class ModelEvaluationPipeline:
         plt.ylabel('tpr')
         plt.xlabel('fpr')
         plt.title('ROC Curve')
-        plt.text(0.2, 0.8, f'AUC score: {self.auc_score}')
+        plt.text(0.8, 0.2, f'AUC score: {self.auc_score:.3f}')
         plt.savefig(os.path.join(self.save_dir, 'ROC.jpg'), dpi=200)
         plt.subplot(1, 2, 2)
         plt.plot(self.tpr, self.precision)
