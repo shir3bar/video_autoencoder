@@ -177,9 +177,9 @@ class ModelEvaluationPipeline:
                 prediction = self.model(clip)
                 vidpath = dataloader.dataset.file_paths[i]
                 vidname = os.path.basename(vidpath)
-                error = np.sqrt((prediction - clip) ** 2)
+                error = torch.sqrt((prediction - clip) ** 2)
                 if clip.shape[1] == 2:
-                    clip, prediction = self.optic_flow_auxiliary(clip,prediction)
+                    clip, prediction = self.optic_flow_auxiliary(clip.cpu().numpy(),prediction.cpu().numpy())
                 d = {'samp_id': vidname, 'category': category, 'avg_error': error.mean().item(),
                      'var_error': error.var().item(), 'max_error': error.max().item()}
                 df = df.append(d, ignore_index=True)
