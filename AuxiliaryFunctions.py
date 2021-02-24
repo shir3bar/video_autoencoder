@@ -133,9 +133,9 @@ def save_recon(reconstruction,model_name,epoch,directory):
     cv2.imwrite(filepath, img)
 
 def error_by_frame(error, savedir=''):
-    sum_of_error = torch.squeeze(error)
+    sum_of_error = torch.squeeze(error).cpu()
     if sum_of_error.shape[0] == 2:
-        sum_of_error = np.transpose(sum_of_error, (1, 2, 3, 0))
+        sum_of_error = torch.transpose(sum_of_error, (1, 2, 3, 0))
         sum_of_error = sum_of_error.sum(axis=1).sum(axis=1).sum(axis=1)
     else:
         sum_of_error = sum_of_error.sum(axis=1).sum(axis=1)
