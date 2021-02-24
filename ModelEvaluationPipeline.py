@@ -49,7 +49,7 @@ class ModelEvaluationPipeline:
                                       shuffle=False, num_workers=4)
         self.feed_loader = DataLoader(self.feed_ds, batch_size=1,
                                       shuffle=False, num_workers=4)
-        print(f'Train: {len(self.train_ds)}, Validation:{len(self.valid_ds)}, '
+        print(f'Train: {len(self.train_ds)}, Validation:{len(self.val_ds)}, '
               f'Test: {len(self.test_ds)}, Feed: {len(self.feed_ds)}')
         self.model = model
         self.save_dir = save_dir
