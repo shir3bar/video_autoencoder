@@ -268,7 +268,7 @@ class ModelEvaluationPipeline:
         df = pd.DataFrame(self.hyperparams)
         df.to_csv(os.path.join(self.save_dir,'hyperparameters.csv'))
         file = open(os.path.join(self.save_dir,'validation_indexs.txt'),mode='+w')
-        file.write(self.val_ds.dataset.filepaths)
+        file.write(self.val_ds.dataset.file_paths)
         file.close()
 
 
