@@ -253,7 +253,14 @@ class ModelEvaluationPipeline:
         self.plot_loss(train_time)
         if evaluate:
             self.evaluate_performance()
-        df = pd.DataFrame([self.hyperparams])
+
+        model_params = self.hyperparams.copy()
+        model_params['auc_score'] = self.auc_score
+        model_params['training_time'] = train_time
+        model_params['datetime'] = datetime.now().strftime('%d-%m-%y %H:%M:%S')
+        df = pd.DataFrame([model_params])
+        df = df[['datetime','model_name', 'auc_score','training_time','num_epochs', 'loss_func','learning_rate',
+                 'weight_decay', 'batch_size','schedule', 'num_frames', 'match_hists','color_channels']]
         df.to_csv(os.path.join(self.save_dir,'hyperparameters.csv'))
         file = open(os.path.join(self.save_dir,'validation_indexs.txt'),mode='+w')
         file.write('\n'.join(self.val_ds.dataset.file_paths))
