@@ -1,4 +1,4 @@
-from Net import Net
+from Net import Autoencoder
 import argparse
 import torch.nn as nn
 import pandas as pd
@@ -13,6 +13,41 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 import os
 
+
+class BaseAE():
+    def __init__(self,color_channels,dataloaders,optimizer,device,criterion):
+        self.dataloaders = dataloaders
+        self.optimizer = optimizer
+        self.device = device
+        self.model = Autoencoder(color_channels=color_channels)
+        self.model.to(self.device)
+        self.criterion = criterion
+        self.train_losses = {}
+        self.val_losses = {}
+
+    def train_one_epoch(self):
+        running_loss = 0.0
+        for i, data in enumerate(self.dataloaders['train'], 0):
+            self.optimizer.zero_grad()
+            clips = data['clip'].to(self.device)
+            reconstruction = self.model(clips)
+            loss = self.criterion(clips, reconstruction)
+            loss.backward()
+            self.optimizer.step()
+            running_loss += loss.item() * clips.size(0)
+        return running_loss
+
+    def validate(self):
+        with torch.no_grad():
+            val_loss = 0.0
+            for j, vdata in enumerate(self.dataloaders['validation']):
+                val_clips = vdata['clip'].to(self.device)
+                val_recon = self.model(val_clips)
+                val_loss += self.criterion(val_clips, val_recon) * val_clips.size(0)
+        return val_loss
+
+    def train(self,epochs):
+        for
 
 class ModelEvaluationPipeline:
     def __init__(self, model, train_folder,test_folder,feed_dir,save_dir,hyperparams):#num_frames,batch_size,learning_rate,train_transforms,test_transforms,match_hist=False):
@@ -33,7 +68,7 @@ class ModelEvaluationPipeline:
         ds = VideoDataset(self.train_dir, num_frames=hyperparams['num_frames'],
                           transform=transforms.Compose(hyperparams['train_transforms']),
                           match_hists=hyperparams['match_hists'],color_channels=hyperparams['color_channels'])
-        num_valid = int(0.15 / 0.85 * len(ds)) # set the validation to be 15% of original dataset size
+        num_valid = int(0.15 / 0.85 * len(ds))  # set the validation to be 15% of original dataset size
         self.train_ds, self.val_ds = torch.utils.data.random_split(ds, (len(ds) - num_valid, num_valid))
         self.train_loader = DataLoader(self.train_ds, batch_size=hyperparams['batch_size'],
                                        shuffle=True, num_workers=12)
@@ -41,10 +76,12 @@ class ModelEvaluationPipeline:
                                        shuffle=False, num_workers=4)
         self.test_ds = VideoDataset(self.test_dir, num_frames=hyperparams['num_frames'],
                                     transform=transforms.Compose(hyperparams['test_transforms']),
-                                    match_hists=hyperparams['match_hists'],color_channels=hyperparams['color_channels'])
+                                    match_hists=hyperparams['match_hists'],
+                                    color_channels=hyperparams['color_channels'])
         self.feed_ds = VideoDataset(self.feed_dir, num_frames=hyperparams['num_frames'],
                                     transform=transforms.Compose(hyperparams['test_transforms']),
-                                    match_hists=hyperparams['match_hists'],color_channels=hyperparams['color_channels'])
+                                    match_hists=hyperparams['match_hists'],
+                                    color_channels=hyperparams['color_channels'])
         self.test_loader = DataLoader(self.test_ds, batch_size=1,
                                       shuffle=False, num_workers=4)
         self.feed_loader = DataLoader(self.feed_ds, batch_size=1,
@@ -67,10 +104,10 @@ class ModelEvaluationPipeline:
         self.results_dir = os.path.join(self.save_dir, 'reconstructions')
         os.mkdir(os.path.join(self.save_dir,'checkpoints'))
         os.mkdir(self.results_dir)
-        os.mkdir(os.path.join(self.results_dir,'feed'))
+        os.mkdir(os.path.join(self.results_dir, 'feed'))
         os.mkdir(os.path.join(self.results_dir, 'test'))
-        os.mkdir(os.path.join(self.results_dir,'feed','sum_error_plots'))
-        os.mkdir(os.path.join(self.results_dir, 'test','sum_error_plots'))
+        os.mkdir(os.path.join(self.results_dir, 'feed', 'sum_error_plots'))
+        os.mkdir(os.path.join(self.results_dir, 'test', 'sum_error_plots'))
 
     def load_checkpoint(self,checkpoint,optimizer,scheduler):
         self.model.load_state_dict(checkpoint['model_state_dict'])
@@ -126,9 +163,9 @@ class ModelEvaluationPipeline:
             # step the scheduler
             if self.hyperparams['schedule']:
                 scheduler.step(self.val_losses[epoch])
-                sch=scheduler.state_dict()
+                sch = scheduler.state_dict()
             else:
-                sch=None
+                sch = None
             save_checkpoint(self.model, optimizer, epoch, train_loss=self.train_losses[epoch],
                             scheduler_state_dict=sch,
                             val_loss=self.val_losses[epoch], directory=directory,
@@ -316,7 +353,7 @@ if __name__ == '__main__':
     hyperparameters['train_transforms'] = train_transforms
     hyperparameters['test_transforms'] = test_transforms
     print(args)
-    model = Net(color_channels=args.color_channels)
+    model = Autoencoder(color_channels=args.color_channels)
     pipeline = ModelEvaluationPipeline(model,args.train_dir,args.test_dir,args.feed_dir,args.save_dir,hyperparameters)
     pipeline(evaluate=(not args.dont_evaluate), checkpoint=args.checkpoint, verbose=args.verbose)
 

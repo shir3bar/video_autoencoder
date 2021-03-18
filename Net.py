@@ -3,12 +3,12 @@ import torch.nn.functional as F
 import torch.nn as nn
 
 
-class Net(nn.Module):
+class Autoencoder(nn.Module):
     def _forward_unimplemented(self, *input: Any) -> None:
         pass
 
     def __init__(self, color_channels):
-        super(Net, self).__init__()
+        super(Autoencoder, self).__init__()
         self.conv1 = nn.Conv3d(color_channels, 8, 3)
         self.conv2 = nn.Conv3d(8, 16, 3)
         self.conv3 = nn.Conv3d(16, 32, 3)
@@ -64,3 +64,15 @@ class Net(nn.Module):
         x, indices, output_size = self.encoder(x)
         x = self.decoder(x, indices, output_size)
         return x
+
+
+class GANomaly(Autoencoder):
+    def __init__(self,color_channels):
+        super(GANomaly, self).__init__(color_channels)
+
+    def forward(self, input):
+        z_in, indices, output_size = self.encoder(input)
+        img_out = self.decoder(z_in)
+        z_out, _, _ = self.encoder(img_out)
+        return z_in, img_out, z_out
+
