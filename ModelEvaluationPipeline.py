@@ -297,8 +297,12 @@ class ModelEvaluationPipeline:
         model_params['auc_score'] = self.auc_score
         model_params['training_time'] = train_time
         model_params['datetime'] = datetime.now().strftime('%d-%m-%y %H:%M:%S')
+        model_params['train_size'] = len(self.train_ds)
+        model_params['val_size'] = len(self.val_ds)
+        model_params['test_size'] = len(self.test_ds)
         df = pd.DataFrame([model_params])
-        df = df[['datetime','model_name', 'auc_score','training_time','num_epochs', 'loss_func','learning_rate',
+        df = df[['datetime','model_name','train_size','val_size', 'test_size','auc_score',
+                 'training_time','num_epochs', 'loss_func','learning_rate',
                  'weight_decay', 'batch_size','schedule', 'num_frames', 'match_hists','color_channels']]
         df.to_csv(os.path.join(self.save_dir,'hyperparameters.csv'))
         file = open(os.path.join(self.save_dir,'validation_indexs.txt'),mode='+w')
