@@ -119,7 +119,7 @@ class ModelEvaluationPipeline:
                 for j, vdata in enumerate(self.val_loader):
                     val_clips = vdata['clip'].to(self.device)
                     val_recon = self.model(val_clips)
-                    val_loss += criterion(val_clips, val_recon) * val_clips.size(0)
+                    val_loss += criterion(val_clips, val_recon).item() * val_clips.size(0)
                 self.val_losses[epoch] = val_loss / len(self.val_loader.dataset)
             if verbose:
                 print(f'Train loss: {self.train_losses[epoch]}, Validation loss: {self.val_losses[epoch]}')
