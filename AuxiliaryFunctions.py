@@ -1,4 +1,8 @@
 # A set of functions to help with visualizations and other household chores
+import os
+import sys.platform as platform
+if platform == 'linux':
+    os.environ["IMAGEIO_FFMPEG_EXE"] = "/usr/bin/ffmpeg"
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
