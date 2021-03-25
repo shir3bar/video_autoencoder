@@ -56,6 +56,7 @@ class BaseAE():
         return val_loss
 
     def train(self,num_epochs,start_idx=0,evaluate=True):
+        sch=None
         for epoch in range(start_idx,num_epochs):
             self.model.train()
             self.train_losses[epoch] = self.train_one_epoch()/len(self.dataloaders['train'].dataset)
@@ -64,11 +65,10 @@ class BaseAE():
                 if self.scheduler:
                     self.scheduler.step(self.val_losses[epoch])
                     sch=self.scheduler.state_dict()
+
             elif self.scheduler:
                 self.scheduler.step(self.train_losses[epoch])
                 sch = self.scheduler.state_dict()
-            else:
-                sch = None
             if self.verbose:
                 print(f'Training loss: {self.train_losses[epoch]}, Validation loss: {self.val_losses[epoch]}')
             if epoch%self.save_every == 0:
@@ -105,6 +105,7 @@ class ModelEvaluationPipeline:
                             number of epochs, learning rate, train transforms, test transforms, model type, number of frames
                             match histogram (boolean), loss function, weight decay, schedule (boolean)
         """
+        self.model = model
         self.train_dir = train_folder
         self.test_dir = test_folder
         self.feed_dir = feed_dir
@@ -112,6 +113,7 @@ class ModelEvaluationPipeline:
                           transform=transforms.Compose(hyperparams['train_transforms']),
                           match_hists=hyperparams['match_hists'],color_channels=hyperparams['color_channels'])
         num_valid = int(0.15 / 0.85 * len(ds))  # set the validation to be 15% of original dataset size
+        self.hyperparams = hyperparams
         self.prep_loaders(ds,num_valid)
         print(f'Train: {len(self.train_ds)}, Validation:{len(self.val_ds)}, '
               f'Test: {len(self.test_ds)}, Feed: {len(self.feed_ds)}')
@@ -127,14 +129,12 @@ class ModelEvaluationPipeline:
                                                                    min_lr=1e-7, verbose=self.hyperparams['verbose'])
         else:
             scheduler = False
-
+        self.start_idx=0
         if isinstance(checkpoint, str):
             checkpoint = torch.load(checkpoint, map_location=self.device)
             optimizer, scheduler, self.start_idx = self.load_checkpoint(checkpoint,optimizer,scheduler)
-        self.model = model
-
         self.save_dir = save_dir
-        self.hyperparams = hyperparams
+
         self.make_subdirs()
         if self.hyperparams['model_type'] == 'ganomaly':
             self.pipeline = GanomalyAE(model,{'train':self.train_loader,'validation':self.val_loader},
@@ -333,7 +333,7 @@ class ModelEvaluationPipeline:
 
 if __name__ == '__main__':
     parameters = ['num_epochs', 'learning_rate', 'weight_decay', 'batch_size', 'loss_func','schedule',
-                        'model_name', 'num_frames', 'match_hists','color_channels']
+                        'model_type','model_name', 'num_frames', 'match_hists','color_channels','verbose']
 
     # [Rescale(256), RandomHorizontalFlip(0.5), RandomVerticalFlip(0.3), ToTensor()]),
     parser = argparse.ArgumentParser()
