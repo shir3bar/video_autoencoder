@@ -117,7 +117,7 @@ def save_checkpoint(model,optimizer,epoch,train_loss,scheduler_state_dict=None,
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
-            'scheduler_state_dict':scheduler_state_dict,
+            'scheduler_state_dict':scheduler_state_dict(),
             'train_loss': train_loss,
             'val_loss': val_loss,
             }, path)
