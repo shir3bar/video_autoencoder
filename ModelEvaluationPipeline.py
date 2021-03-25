@@ -306,7 +306,7 @@ class ModelEvaluationPipeline:
             torch.cuda.empty_cache()
         start = timer()
         torch.manual_seed(42)
-        self.pipeline.train(self.hyperparams['num_epochs'], self.start_idx)
+        self.pipeline.train(self.hyperparams['num_epochs'], evaluate=evaluate, start_idx=self.start_idx)
         end = timer()
         train_time = end - start
         print(f'elapsed training time {train_time} sec')
