@@ -1,4 +1,4 @@
-from Net import Autoencoder
+from Net import Autoencoder, GANomaly
 import argparse
 import torch.nn as nn
 import pandas as pd
@@ -15,42 +15,85 @@ import os
 
 
 class BaseAE():
-    def __init__(self,color_channels,dataloaders,optimizer,device,criterion):
+    def __init__(self,model,dataloaders,optimizer,criterion,save_dir,scheduler=False,verbose=False,save_every=10):
         self.dataloaders = dataloaders
         self.optimizer = optimizer
-        self.device = device
-        self.model = Autoencoder(color_channels=color_channels)
+        self.scheduler = scheduler
+        self.save_every = save_every
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        #self.model = Autoencoder(color_channels=color_channels)
+        self.model = model
         self.model.to(self.device)
-        self.criterion = criterion
+        self.recon_loss = criterion
+        self.save_dir = save_dir
+        self.verbose=verbose
         self.train_losses = {}
         self.val_losses = {}
+
+    def calc_loss(self,clips):
+        reconstruction = self.model(clips)
+        loss = self.recon_loss(clips, reconstruction)
+        return loss
 
     def train_one_epoch(self):
         running_loss = 0.0
         for i, data in enumerate(self.dataloaders['train'], 0):
             self.optimizer.zero_grad()
             clips = data['clip'].to(self.device)
-            reconstruction = self.model(clips)
-            loss = self.criterion(clips, reconstruction)
+            loss = self.calc_loss(clips)
             loss.backward()
             self.optimizer.step()
             running_loss += loss.item() * clips.size(0)
         return running_loss
 
     def validate(self):
+        self.model.eval()
         with torch.no_grad():
             val_loss = 0.0
             for j, vdata in enumerate(self.dataloaders['validation']):
                 val_clips = vdata['clip'].to(self.device)
-                val_recon = self.model(val_clips)
-                val_loss += self.criterion(val_clips, val_recon) * val_clips.size(0)
+                val_loss += self.calc_loss(val_clips) * val_clips.size(0)
         return val_loss
 
-    def train(self,epochs):
-        for
+    def train(self,num_epochs,start_idx=0,evaluate=True):
+        for epoch in range(start_idx,num_epochs):
+            self.model.train()
+            self.train_losses[epoch] = self.train_one_epoch()/len(self.dataloaders['train'].dataset)
+            if evaluate:
+                self.val_losses[epoch] = self.validate()
+                if self.scheduler:
+                    self.scheduler.step(self.val_losses[epoch])
+                    sch=self.scheduler.state_dict()
+            elif self.scheduler:
+                self.scheduler.step(self.train_losses[epoch])
+                sch = self.scheduler.state_dict()
+            else:
+                sch = None
+            if self.verbose:
+                print(f'Training loss: {self.train_losses[epoch]}, Validation loss: {self.val_losses[epoch]}')
+            if epoch%self.save_every == 0:
+                save_checkpoint(self.model, self.optimizer, epoch, train_loss=self.train_losses[epoch],
+                                scheduler_state_dict=sch,
+                                val_loss=self.val_losses[epoch], directory=self.save_dir+'/checkpoints/',
+                                name=self.model._get_name())
+
+class GanomalyAE(BaseAE):
+    def __init__(self,model,dataloaders,optimizer,recon_loss,save_dir,loss_weights={'l_enc':1,'l_recon':50},scheduler=False,verbose=False,save_every=10):
+        super.__init__(model,dataloaders,optimizer,recon_loss,save_dir,scheduler,verbose,save_every)
+        self.enc_loss = nn.MSELoss()
+        self.loss_weights = loss_weights
+
+    def calc_loss(self, clips):
+        z_in, img_out, z_out = self.model(clips)
+        l_rec = self.recon_loss(clips, img_out)
+        l_enc = self.enc_loss(z_in, z_out)
+        loss = self.loss_weights['l_enc'] * l_enc + self.loss_weights['l_recon'] * l_rec
+        return loss
+
+
 
 class ModelEvaluationPipeline:
-    def __init__(self, model, train_folder,test_folder,feed_dir,save_dir,hyperparams):#num_frames,batch_size,learning_rate,train_transforms,test_transforms,match_hist=False):
+    def __init__(self, model, train_folder,test_folder,feed_dir,save_dir,hyperparams,checkpoint=[]):#num_frames,batch_size,learning_rate,train_transforms,test_transforms,match_hist=False):
         """
         
         :param model: model to train
@@ -69,33 +112,59 @@ class ModelEvaluationPipeline:
                           transform=transforms.Compose(hyperparams['train_transforms']),
                           match_hists=hyperparams['match_hists'],color_channels=hyperparams['color_channels'])
         num_valid = int(0.15 / 0.85 * len(ds))  # set the validation to be 15% of original dataset size
+        self.prep_loaders(ds,num_valid)
+        print(f'Train: {len(self.train_ds)}, Validation:{len(self.val_ds)}, '
+              f'Test: {len(self.test_ds)}, Feed: {len(self.feed_ds)}')
+        if self.hyperparams['loss_func'] == 'L1':
+            criterion = nn.L1Loss()
+        else:
+            criterion = nn.MSELoss()
+
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.hyperparams['learning_rate'],
+                                     weight_decay=self.hyperparams['weight_decay'])
+        if hyperparams['schedule']:
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=15,
+                                                                   min_lr=1e-7, verbose=self.hyperparams['verbose'])
+        else:
+            scheduler = False
+
+        if isinstance(checkpoint, str):
+            checkpoint = torch.load(checkpoint, map_location=self.device)
+            optimizer, scheduler, self.start_idx = self.load_checkpoint(checkpoint,optimizer,scheduler)
+        self.model = model
+
+        self.save_dir = save_dir
+        self.hyperparams = hyperparams
+        self.make_subdirs()
+        if self.hyperparams['model_type'] == 'ganomaly':
+            self.pipeline = GanomalyAE(model,{'train':self.train_loader,'validation':self.val_loader},
+                                       optimizer,criterion,self.save_dir,
+                                       loss_weights={'l_enc':1,'l_recon':50},scheduler=scheduler,
+                                       verbose=self.hyperparams['verbose'], save_every=10)
+        else:
+            self.pipeline = BaseAE(model,{'train':self.train_loader,'validation':self.val_loader},
+                                       optimizer, criterion, self.save_dir,
+                                       scheduler=scheduler,
+                                       verbose=self.hyperparams['verbose'], save_every=10)
+
+    def prep_loaders(self,ds,num_valid):
         self.train_ds, self.val_ds = torch.utils.data.random_split(ds, (len(ds) - num_valid, num_valid))
-        self.train_loader = DataLoader(self.train_ds, batch_size=hyperparams['batch_size'],
+        self.train_loader = DataLoader(self.train_ds, batch_size=self.hyperparams['batch_size'],
                                        shuffle=True, num_workers=12)
-        self.val_loader = DataLoader(self.val_ds, batch_size=hyperparams['batch_size'],
-                                       shuffle=False, num_workers=4)
-        self.test_ds = VideoDataset(self.test_dir, num_frames=hyperparams['num_frames'],
-                                    transform=transforms.Compose(hyperparams['test_transforms']),
-                                    match_hists=hyperparams['match_hists'],
-                                    color_channels=hyperparams['color_channels'])
-        self.feed_ds = VideoDataset(self.feed_dir, num_frames=hyperparams['num_frames'],
-                                    transform=transforms.Compose(hyperparams['test_transforms']),
-                                    match_hists=hyperparams['match_hists'],
-                                    color_channels=hyperparams['color_channels'])
+        self.val_loader = DataLoader(self.val_ds, batch_size=self.hyperparams['batch_size'],
+                                     shuffle=False, num_workers=4)
+        self.test_ds = VideoDataset(self.test_dir, num_frames=self.hyperparams['num_frames'],
+                                    transform=transforms.Compose(self.hyperparams['test_transforms']),
+                                    match_hists=self.hyperparams['match_hists'],
+                                    color_channels=self.hyperparams['color_channels'])
+        self.feed_ds = VideoDataset(self.feed_dir, num_frames=self.hyperparams['num_frames'],
+                                    transform=transforms.Compose(self.hyperparams['test_transforms']),
+                                    match_hists=self.hyperparams['match_hists'],
+                                    color_channels=self.hyperparams['color_channels'])
         self.test_loader = DataLoader(self.test_ds, batch_size=1,
                                       shuffle=False, num_workers=4)
         self.feed_loader = DataLoader(self.feed_ds, batch_size=1,
                                       shuffle=False, num_workers=4)
-        print(f'Train: {len(self.train_ds)}, Validation:{len(self.val_ds)}, '
-              f'Test: {len(self.test_ds)}, Feed: {len(self.feed_ds)}')
-        self.model = model
-        self.save_dir = save_dir
-        self.hyperparams = hyperparams
-        self.make_subdirs()
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.model.to(self.device)
-        self.train_losses = {}
-        self.val_losses = {}
 
     def make_subdirs(self):
         if os.path.exists(self.save_dir):
@@ -116,67 +185,16 @@ class ModelEvaluationPipeline:
         try:
             scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
         except KeyError:
+            scheduler=False
             print('scheduler not found')
         start_idx = checkpoint['epoch']
         return optimizer,scheduler,start_idx
 
-    def train(self,checkpoint=[],verbose=True):
-        torch.manual_seed(42)
-        directory = os.path.join(self.save_dir,'checkpoints')
-        if self.hyperparams['loss_func'] == 'L1':
-            criterion = nn.L1Loss()
-        else:
-            criterion = nn.MSELoss()
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.hyperparams['learning_rate'],
-                                     weight_decay=self.hyperparams['weight_decay'])
-        if self.hyperparams['schedule']:
-            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=15,
-                                                                   min_lr=1e-7, verbose=verbose)
-        start_idx = 0
-        if isinstance(checkpoint, dict):
-            optimizer, scheduler, start_idx = self.load_checkpoint(checkpoint,optimizer,scheduler)
-        for epoch in range(start_idx, self.hyperparams['num_epochs']):
-            running_loss = 0.0
-            for i, data in enumerate(self.train_loader, 0):
-                optimizer.zero_grad()
-                clips = data['clip'].to(self.device)
-                reconstruction = self.model(clips)
-                loss = criterion(clips, reconstruction)
-                loss.backward()
-                optimizer.step()
-                running_loss += loss.item() * clips.size(0)
-                if (i % 500 == 0) and verbose:  # print every 500 mini-batches
-                    print('[%d, %5d] loss: %.3f' %
-                          (epoch + 1, i + 1, loss.item()))
-
-            self.train_losses[epoch] = running_loss / len(self.train_loader.dataset)
-            # evaluate the validation data set:
-            with torch.no_grad():
-                val_loss = 0.0
-                for j, vdata in enumerate(self.val_loader):
-                    val_clips = vdata['clip'].to(self.device)
-                    val_recon = self.model(val_clips)
-                    val_loss += criterion(val_clips, val_recon) * val_clips.size(0)
-                self.val_losses[epoch] = val_loss / len(self.val_loader.dataset)
-            if verbose:
-                print(f'Train loss: {self.train_losses[epoch]}, Validation loss: {self.val_losses[epoch]}')
-            # step the scheduler
-            if self.hyperparams['schedule']:
-                scheduler.step(self.val_losses[epoch])
-                sch = scheduler.state_dict()
-            else:
-                sch = None
-            save_checkpoint(self.model, optimizer, epoch, train_loss=self.train_losses[epoch],
-                            scheduler_state_dict=sch,
-                            val_loss=self.val_losses[epoch], directory=directory,
-                            name=self.hyperparams['model_name'])
-            save_recon(reconstruction, self.hyperparams['model_name'], epoch, directory)
-
     def plot_loss(self,train_time):
         with plt.style.context('seaborn-poster'):
             plt.figure(figsize=(15,10))
-            plt.plot(list(self.train_losses.keys()),(list(self.train_losses.values())))
-            plt.plot(list(self.val_losses.keys()),(list(self.val_losses.values())))
+            plt.plot(list(self.pipeline.train_losses.keys()),(list(self.pipeline.train_losses.values())))
+            plt.plot(list(self.pipeline.val_losses.keys()),(list(self.pipeline.val_losses.values())))
             plt.legend(['train','validation'])
             plt.xlabel('epoch')
             plt.ylabel('loss')
@@ -198,10 +216,14 @@ class ModelEvaluationPipeline:
     def eval_category(self,category,dataloader,movie):
         column_names = ['samp_id', 'category', 'avg_error', 'var_error', 'max_error']
         df = pd.DataFrame({column: [] for column in column_names})
+        model.eval()
         with torch.no_grad():
             for i, batch in enumerate(dataloader):
                 clip = batch['clip'].to(self.device)
-                prediction = self.model(clip)
+                if self.hyperparams['model_type'] == 'ganomaly':
+                    _,prediction,_ = self.model(clip)
+                else:
+                    prediction = self.model(clip)
                 vidpath = dataloader.dataset.file_paths[i]
                 vidname = os.path.basename(vidpath)
                 error = torch.sqrt((prediction - clip) ** 2)
@@ -282,17 +304,15 @@ class ModelEvaluationPipeline:
     def __call__(self,evaluate,checkpoint=[],verbose=True):
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-        if isinstance(checkpoint, str):
-            checkpoint = torch.load(checkpoint, map_location=self.device)
         start = timer()
-        self.train(checkpoint, verbose)
+        torch.manual_seed(42)
+        self.pipeline.train(self.hyperparams['num_epochs'], self.start_idx)
         end = timer()
         train_time = end - start
         print(f'elapsed training time {train_time} sec')
         self.plot_loss(train_time)
         if evaluate:
             self.evaluate_performance()
-
         model_params = self.hyperparams.copy()
         model_params['auc_score'] = self.auc_score
         model_params['training_time'] = train_time
@@ -321,6 +341,7 @@ if __name__ == '__main__':
     parser.add_argument('test_dir', help='enter test dataset path')
     parser.add_argument('feed_dir', help='enter feed dataset path')
     parser.add_argument('save_dir', help='enter save dataset path')
+    parser.add_argument('-model_type', type=str, default='autoencoder', choices=['autoencoder','ganomaly'])
     parser.add_argument('-epochs', '--num_epochs', type=int, default=200, help='number of training epochs')
     parser.add_argument('-lr','--learning_rate',type=float, default=1e-3, help='optimizer learning rate')
     parser.add_argument('-weight_decay', type=float, default=1e-5, help='weight decay for optimization')
@@ -357,7 +378,10 @@ if __name__ == '__main__':
     hyperparameters['train_transforms'] = train_transforms
     hyperparameters['test_transforms'] = test_transforms
     print(args)
-    model = Autoencoder(color_channels=args.color_channels)
+    if hyperparameters['model_type'] == 'autoencoder':
+        model = Autoencoder(color_channels=args.color_channels)
+    else:
+        model = GANomaly(color_channels=args.color_channels)
     pipeline = ModelEvaluationPipeline(model,args.train_dir,args.test_dir,args.feed_dir,args.save_dir,hyperparameters)
     pipeline(evaluate=(not args.dont_evaluate), checkpoint=args.checkpoint, verbose=args.verbose)
 

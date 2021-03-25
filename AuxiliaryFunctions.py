@@ -109,6 +109,8 @@ def split_clip(load_path,save_path,num_frames,fps=30):
 def save_checkpoint(model,optimizer,epoch,train_loss,scheduler_state_dict=None,
                     val_loss=None,directory='/content/drive/My Drive/PhD/Swim_samples',name='model'):
     path=os.path.join(directory,f'{name}_epoch{epoch}.pt')
+    if not os.path.exists(path):
+        os.mkdir(path)
     torch.save({
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
