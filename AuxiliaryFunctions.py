@@ -1,10 +1,13 @@
 # A set of functions to help with visualizations and other household chores
+import os
+from sys import platform
+if platform == 'linux':
+    os.environ["IMAGEIO_FFMPEG_EXE"] = "/usr/bin/ffmpeg"
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import torch
 import cv2
-import os
 import io
 from PIL import Image, ImageSequence
 from moviepy.editor import ImageSequenceClip
