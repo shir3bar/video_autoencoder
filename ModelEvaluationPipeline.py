@@ -30,20 +30,21 @@ class BaseAE():
         self.train_losses = {}
         self.val_losses = {}
 
-    def calc_loss(self,clips):
+    def calc_loss(self,clips,validate=False):
         reconstruction = self.model(clips)
         loss = self.recon_loss(clips, reconstruction)
-        return loss
+        if not validate:
+            loss.backward()
+        running_loss = loss.item() * clips.size(0)
+        return running_loss
 
     def train_one_epoch(self):
         running_loss = 0.0
         for i, data in enumerate(self.dataloaders['train'], 0):
             self.optimizer.zero_grad()
             clips = data['clip'].to(self.device)
-            loss = self.calc_loss(clips)
-            loss.backward()
+            running_loss += self.calc_loss(clips)
             self.optimizer.step()
-            running_loss += loss.item() * clips.size(0)
         return running_loss
 
     def validate(self):
@@ -52,7 +53,7 @@ class BaseAE():
             val_loss = 0.0
             for j, vdata in enumerate(self.dataloaders['validation']):
                 val_clips = vdata['clip'].to(self.device)
-                val_loss += self.calc_loss(val_clips) * val_clips.size(0)
+                val_loss += self.calc_loss(val_clips,validate=True)
         return val_loss
 
     def train(self,num_epochs,start_idx=0,evaluate=True):
@@ -79,7 +80,7 @@ class BaseAE():
 
 class GanomalyAE(BaseAE):
     def __init__(self,model,dataloaders,optimizer,recon_loss,save_dir,loss_weights={'l_enc':1,'l_recon':50},scheduler=False,verbose=False,save_every=10):
-        super.__init__(model,dataloaders,optimizer,recon_loss,save_dir,scheduler,verbose,save_every)
+        super().__init__(model,dataloaders,optimizer,recon_loss,save_dir,scheduler,verbose,save_every)
         self.enc_loss = nn.MSELoss()
         self.loss_weights = loss_weights
 
@@ -146,6 +147,7 @@ class ModelEvaluationPipeline:
                                        optimizer, criterion, self.save_dir,
                                        scheduler=scheduler,
                                        verbose=self.hyperparams['verbose'], save_every=10)
+        self.device = self.pipeline.device
 
     def prep_loaders(self,ds,num_valid):
         self.train_ds, self.val_ds = torch.utils.data.random_split(ds, (len(ds) - num_valid, num_valid))
@@ -382,6 +384,7 @@ if __name__ == '__main__':
         model = Autoencoder(color_channels=args.color_channels)
     else:
         model = GANomaly(color_channels=args.color_channels)
+        print(model)
     pipeline = ModelEvaluationPipeline(model,args.train_dir,args.test_dir,args.feed_dir,args.save_dir,hyperparameters)
     pipeline(evaluate=(not args.dont_evaluate), checkpoint=args.checkpoint, verbose=args.verbose)
 
