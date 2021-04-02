@@ -48,6 +48,7 @@ class BaseAE():
         return running_loss
 
     def validate(self):
+        print('Validating')
         self.model.eval()
         with torch.no_grad():
             val_loss = 0.0
@@ -58,38 +59,47 @@ class BaseAE():
 
     def train(self,num_epochs,start_idx=0,evaluate=True):
         sch=None
+        print('Training')
         for epoch in range(start_idx,num_epochs):
             self.model.train()
             self.train_losses[epoch] = self.train_one_epoch()/len(self.dataloaders['train'].dataset)
             if evaluate:
-                self.val_losses[epoch] = self.validate()
+                self.val_losses[epoch] = self.validate()/len(self.dataloaders['validation'].dataset)
                 if self.scheduler:
                     self.scheduler.step(self.val_losses[epoch])
                     sch=self.scheduler.state_dict()
-
             elif self.scheduler:
                 self.scheduler.step(self.train_losses[epoch])
                 sch = self.scheduler.state_dict()
             if self.verbose:
-                print(f'Training loss: {self.train_losses[epoch]}, Validation loss: {self.val_losses[epoch]}')
+                print(f'Epoch {epoch} Training loss: {self.train_losses[epoch]:.4f}, Validation loss: {self.val_losses[epoch]:.4f}')
             if epoch%self.save_every == 0:
                 save_checkpoint(self.model, self.optimizer, epoch, train_loss=self.train_losses[epoch],
                                 scheduler_state_dict=sch,
                                 val_loss=self.val_losses[epoch], directory=self.save_dir+'/checkpoints/',
                                 name=self.model._get_name())
+        save_checkpoint(self.model, self.optimizer, epoch, train_loss=self.train_losses[epoch],
+                        scheduler_state_dict=sch,
+                        val_loss=self.val_losses[epoch], directory=self.save_dir + '/checkpoints/',
+                        name=self.model._get_name()+'_final')
 
 class GanomalyAE(BaseAE):
-    def __init__(self,model,dataloaders,optimizer,recon_loss,save_dir,loss_weights={'l_enc':1,'l_recon':50},scheduler=False,verbose=False,save_every=10):
-        super().__init__(model,dataloaders,optimizer,recon_loss,save_dir,scheduler,verbose,save_every)
+    def __init__(self,net,dataloaders,optimizer,recon_loss,save_dir,loss_weights={'l_enc':1,'l_recon':50},scheduler=False,verbose=False,save_every=10):
+        super().__init__(net,dataloaders,optimizer,recon_loss,save_dir,scheduler,verbose,save_every)
         self.enc_loss = nn.MSELoss()
+        self.loss = lambda img_in,z_in,img_out,z_out: \
+            loss_weights['l_enc']*self.enc_loss(z_in,z_out) + \
+            loss_weights['l_recon']*self.recon_loss(img_in,img_out)
         self.loss_weights = loss_weights
 
-    def calc_loss(self, clips):
+
+    def calc_loss(self, clips,validate=False):
         z_in, img_out, z_out = self.model(clips)
-        l_rec = self.recon_loss(clips, img_out)
-        l_enc = self.enc_loss(z_in, z_out)
-        loss = self.loss_weights['l_enc'] * l_enc + self.loss_weights['l_recon'] * l_rec
-        return loss
+        loss = self.loss(clips,z_in,img_out,z_out)
+        if not validate:
+            loss.backward()
+        running_loss = loss.item() * clips.size(0)
+        return running_loss
 
 
 
@@ -132,6 +142,7 @@ class ModelEvaluationPipeline:
             scheduler = False
         self.start_idx=0
         if isinstance(checkpoint, str):
+            print('Loading checkpoint...')
             checkpoint = torch.load(checkpoint, map_location=self.device)
             optimizer, scheduler, self.start_idx = self.load_checkpoint(checkpoint,optimizer,scheduler)
         self.save_dir = save_dir
@@ -140,7 +151,7 @@ class ModelEvaluationPipeline:
         if self.hyperparams['model_type'] == 'ganomaly':
             self.pipeline = GanomalyAE(model,{'train':self.train_loader,'validation':self.val_loader},
                                        optimizer,criterion,self.save_dir,
-                                       loss_weights={'l_enc':1,'l_recon':50},scheduler=scheduler,
+                                       loss_weights={'l_enc':50,'l_recon':1},scheduler=scheduler,
                                        verbose=self.hyperparams['verbose'], save_every=10)
         else:
             self.pipeline = BaseAE(model,{'train':self.train_loader,'validation':self.val_loader},
@@ -384,7 +395,6 @@ if __name__ == '__main__':
         model = Autoencoder(color_channels=args.color_channels)
     else:
         model = GANomaly(color_channels=args.color_channels)
-        print(model)
     pipeline = ModelEvaluationPipeline(model,args.train_dir,args.test_dir,args.feed_dir,args.save_dir,hyperparameters)
     pipeline(evaluate=(not args.dont_evaluate), checkpoint=args.checkpoint, verbose=args.verbose)
 
