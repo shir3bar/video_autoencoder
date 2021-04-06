@@ -132,31 +132,34 @@ class ModelEvaluationPipeline:
             criterion = nn.L1Loss()
         else:
             criterion = nn.MSELoss()
-
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.hyperparams['learning_rate'],
-                                     weight_decay=self.hyperparams['weight_decay'])
+        if hyperparams['optimizer'] == 'Adam':
+            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.hyperparams['learning_rate'],
+                                         weight_decay=self.hyperparams['weight_decay'])
+        else:
+            self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.hyperparams['learning_rate'],
+                                             weight_decay=self.hyperparams['weight_decay'], momentum=0.9)
         if hyperparams['schedule']:
-            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=15,
+            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min', factor=0.5, patience=15,
                                                                    min_lr=1e-7, verbose=self.hyperparams['verbose'])
         else:
-            scheduler = False
+            self.scheduler = False
         self.start_idx=0
         if isinstance(checkpoint, str):
             print('Loading checkpoint...')
             checkpoint = torch.load(checkpoint, map_location=self.device)
-            optimizer, scheduler, self.start_idx = self.load_checkpoint(checkpoint,optimizer,scheduler)
+            self.load_checkpoint(checkpoint)
         self.save_dir = save_dir
 
         self.make_subdirs()
         if self.hyperparams['model_type'] == 'ganomaly':
             self.pipeline = GanomalyAE(model,{'train':self.train_loader,'validation':self.val_loader},
-                                       optimizer,criterion,self.save_dir,
-                                       loss_weights={'l_enc':50,'l_recon':1},scheduler=scheduler,
+                                       self.optimizer,criterion,self.save_dir,
+                                       loss_weights={'l_enc':50,'l_recon':1},scheduler=self.scheduler,
                                        verbose=self.hyperparams['verbose'], save_every=10)
         else:
             self.pipeline = BaseAE(model,{'train':self.train_loader,'validation':self.val_loader},
-                                       optimizer, criterion, self.save_dir,
-                                       scheduler=scheduler,
+                                       self.optimizer, criterion, self.save_dir,
+                                       scheduler=self.scheduler,
                                        verbose=self.hyperparams['verbose'], save_every=10)
         self.device = self.pipeline.device
 
@@ -191,17 +194,17 @@ class ModelEvaluationPipeline:
         os.mkdir(os.path.join(self.results_dir, 'feed', 'sum_error_plots'))
         os.mkdir(os.path.join(self.results_dir, 'test', 'sum_error_plots'))
 
-    def load_checkpoint(self,checkpoint,optimizer,scheduler):
+    def load_checkpoint(self,checkpoint):
         self.model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        optimizer.lr = self.hyperparams['learning_rate']
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        self.optimizer.lr = self.hyperparams['learning_rate']
         try:
-            scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+            self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
         except KeyError:
-            scheduler=False
+            self.scheduler=False
             print('scheduler not found')
-        start_idx = checkpoint['epoch']
-        return optimizer,scheduler,start_idx
+        self.start_idx = checkpoint['epoch']
+
 
     def plot_loss(self,train_time):
         with plt.style.context('seaborn-poster'):
@@ -211,7 +214,7 @@ class ModelEvaluationPipeline:
             plt.legend(['train','validation'])
             plt.xlabel('epoch')
             plt.ylabel('loss')
-            plt.title(f'{self.hyperparams["loss_func"]} Loss Adam Optimizer With Weight Decay - \n '
+            plt.title(f'{self.hyperparams["loss_func"]} Loss {self.hyperparams["optimizer"]} Optimizer With Weight Decay - \n '
                       f'lr:{self.hyperparams["learning_rate"]}, {self.hyperparams["num_frames"]} frames, '
                       f'training time: {train_time/3600:.2f} hrs')
             plt.savefig(os.path.join(self.save_dir,'ds_lossvsepoch.png'))
@@ -229,7 +232,7 @@ class ModelEvaluationPipeline:
     def eval_category(self,category,dataloader,movie):
         column_names = ['samp_id', 'category', 'avg_error', 'var_error', 'max_error']
         df = pd.DataFrame({column: [] for column in column_names})
-        model.eval()
+        self.model.eval()
         with torch.no_grad():
             for i, batch in enumerate(dataloader):
                 clip = batch['clip'].to(self.device)
@@ -346,7 +349,7 @@ class ModelEvaluationPipeline:
 
 if __name__ == '__main__':
     parameters = ['num_epochs', 'learning_rate', 'weight_decay', 'batch_size', 'loss_func','schedule',
-                        'model_type','model_name', 'num_frames', 'match_hists','color_channels','verbose']
+                        'model_type','model_name', 'num_frames', 'match_hists','color_channels','verbose','optimizer']
 
     # [Rescale(256), RandomHorizontalFlip(0.5), RandomVerticalFlip(0.3), ToTensor()]),
     parser = argparse.ArgumentParser()
@@ -372,6 +375,7 @@ if __name__ == '__main__':
                         help='choose #color channels in input clips, 2 is for optic flow data')
     parser.add_argument('-no_eval','--dont_evaluate',action='store_true',help='raise flag to avoid evaluating the model')
     parser.add_argument('-chkpt','--checkpoint', default=[], help='enter checkpoint path for loading')
+    parser.add_argument('-optim', '--optimizer', default='Adam', choices=['Adam','SGD'], help='enter checkpoint path for loading')
     parser.add_argument("-v", '--verbose', action='store_true')
     args = parser.parse_args()
     train_transforms = []
