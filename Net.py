@@ -106,3 +106,4 @@ class GANomaly(Autoencoder):
         z_out, _, _ = self.encoder2(img_out)
         return z_in, img_out, z_out
 
+

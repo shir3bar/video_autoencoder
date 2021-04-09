@@ -11,6 +11,7 @@ from timeit import default_timer as timer
 from sklearn.metrics import auc
 from datetime import datetime
 import matplotlib.pyplot as plt
+import json
 import os
 
 
@@ -104,12 +105,11 @@ class GanomalyAE(BaseAE):
 
 
 class ModelEvaluationPipeline:
-    def __init__(self, model, train_folder,test_folder,feed_dir,save_dir,hyperparams,checkpoint=[]):#num_frames,batch_size,learning_rate,train_transforms,test_transforms,match_hist=False):
+    def __init__(self, model, ds_dir,feed_dir,save_dir,hyperparams,checkpoint=[]):#num_frames,batch_size,learning_rate,train_transforms,test_transforms,match_hist=False):
         """
         
         :param model: model to train
-        :param train_folder: directory of training (and validation) videos
-        :param test_folder: directory of test videos
+        :param ds_dir: directory of training, validation and test videos
         :param feed_dir: directory of test feed
         :param save_dir: directory to save results
         :param hyperparams: dictionary containing hyperparameters for training and dataset configuration - batch size,
@@ -117,15 +117,10 @@ class ModelEvaluationPipeline:
                             match histogram (boolean), loss function, weight decay, schedule (boolean)
         """
         self.model = model
-        self.train_dir = train_folder
-        self.test_dir = test_folder
+        self.dataset_dir = ds_dir
         self.feed_dir = feed_dir
-        ds = VideoDataset(self.train_dir, num_frames=hyperparams['num_frames'],
-                          transform=transforms.Compose(hyperparams['train_transforms']),
-                          match_hists=hyperparams['match_hists'],color_channels=hyperparams['color_channels'])
-        num_valid = int(0.15 / 0.85 * len(ds))  # set the validation to be 15% of original dataset size
         self.hyperparams = hyperparams
-        self.prep_loaders(ds,num_valid)
+        self.prep_loaders()
         print(f'Train: {len(self.train_ds)}, Validation:{len(self.val_ds)}, '
               f'Test: {len(self.test_ds)}, Feed: {len(self.feed_ds)}')
         if self.hyperparams['loss_func'] == 'L1':
@@ -154,7 +149,8 @@ class ModelEvaluationPipeline:
         if self.hyperparams['model_type'] == 'ganomaly':
             self.pipeline = GanomalyAE(model,{'train':self.train_loader,'validation':self.val_loader},
                                        self.optimizer,criterion,self.save_dir,
-                                       loss_weights={'l_enc':50,'l_recon':1},scheduler=self.scheduler,
+                                       loss_weights=self.hyperparams['loss_weights'],
+                                       scheduler=self.scheduler,
                                        verbose=self.hyperparams['verbose'], save_every=10)
         else:
             self.pipeline = BaseAE(model,{'train':self.train_loader,'validation':self.val_loader},
@@ -163,13 +159,21 @@ class ModelEvaluationPipeline:
                                        verbose=self.hyperparams['verbose'], save_every=10)
         self.device = self.pipeline.device
 
-    def prep_loaders(self,ds,num_valid):
-        self.train_ds, self.val_ds = torch.utils.data.random_split(ds, (len(ds) - num_valid, num_valid))
+    def prep_loaders(self):
+        train_dir = os.path.join(self.dataset_dir,'train')
+        val_dir = os.path.join(self.dataset_dir, 'validation')
+        test_dir = os.path.join(self.dataset_dir,'test')
+        self.train_ds = VideoDataset(train_dir, num_frames=self.hyperparams['num_frames'],
+                     transform=transforms.Compose(self.hyperparams['train_transforms']),
+                     match_hists=self.hyperparams['match_hists'], color_channels=self.hyperparams['color_channels'])
+        self.val_ds = VideoDataset(val_dir, num_frames=self.hyperparams['num_frames'],
+                     transform=transforms.Compose(self.hyperparams['train_transforms']),
+                     match_hists=self.hyperparams['match_hists'], color_channels=self.hyperparams['color_channels'])
         self.train_loader = DataLoader(self.train_ds, batch_size=self.hyperparams['batch_size'],
                                        shuffle=True, num_workers=12)
         self.val_loader = DataLoader(self.val_ds, batch_size=self.hyperparams['batch_size'],
                                      shuffle=False, num_workers=4)
-        self.test_ds = VideoDataset(self.test_dir, num_frames=self.hyperparams['num_frames'],
+        self.test_ds = VideoDataset(test_dir, num_frames=self.hyperparams['num_frames'],
                                     transform=transforms.Compose(self.hyperparams['test_transforms']),
                                     match_hists=self.hyperparams['match_hists'],
                                     color_channels=self.hyperparams['color_channels'])
@@ -184,7 +188,7 @@ class ModelEvaluationPipeline:
 
     def make_subdirs(self):
         if os.path.exists(self.save_dir):
-            self.save_dir += self.hyperparams['model_name']+datetime.now().strftime("%H%M%S")
+            self.save_dir += datetime.now().strftime("%H%M%S")
         os.mkdir(self.save_dir)
         self.results_dir = os.path.join(self.save_dir, 'reconstructions')
         os.mkdir(os.path.join(self.save_dir,'checkpoints'))
@@ -220,6 +224,7 @@ class ModelEvaluationPipeline:
             plt.savefig(os.path.join(self.save_dir,'ds_lossvsepoch.png'))
             plt.close()
 
+    @staticmethod
     def optic_flow_auxiliary(self,clip,prediction):
         tmp = np.ones((1, 3, clip.shape[2], clip.shape[3], clip.shape[4])) * 0.5
         tmp[:, :-1, :, :, :] = clip
@@ -330,31 +335,32 @@ class ModelEvaluationPipeline:
         if evaluate:
             self.evaluate_performance()
         model_params = self.hyperparams.copy()
+        model_params['dataset_name'] = os.path.basename(self.dataset_dir)
         model_params['auc_score'] = self.auc_score
         model_params['training_time'] = train_time
         model_params['datetime'] = datetime.now().strftime('%d-%m-%y %H:%M:%S')
         model_params['train_size'] = len(self.train_ds)
         model_params['val_size'] = len(self.val_ds)
         model_params['test_size'] = len(self.test_ds)
+        model_params['loss_weights'] = self.hyperparams['loss_weights']
         df = pd.DataFrame([model_params])
-        df = df[['datetime','model_name','train_size','val_size', 'test_size','auc_score',
-                 'training_time','num_epochs', 'loss_func','learning_rate',
+        df = df[['datetime','model_name','dataset_name','train_size','val_size', 'test_size','auc_score',
+                 'training_time','num_epochs', 'loss_func','learning_rate','loss_weights',
                  'weight_decay', 'batch_size','schedule', 'num_frames', 'match_hists','color_channels']]
         df.to_csv(os.path.join(self.save_dir,'hyperparameters.csv'))
         file = open(os.path.join(self.save_dir,'validation_indexs.txt'),mode='+w')
-        file.write('\n'.join(self.val_ds.dataset.file_paths))
+        file.write('\n'.join(self.val_loader.dataset.file_paths))
         file.close()
 
 
 
 if __name__ == '__main__':
-    parameters = ['num_epochs', 'learning_rate', 'weight_decay', 'batch_size', 'loss_func','schedule',
+    parameters = ['num_epochs', 'learning_rate', 'weight_decay', 'batch_size', 'loss_func','schedule','loss_weights',
                         'model_type','model_name', 'num_frames', 'match_hists','color_channels','verbose','optimizer']
 
     # [Rescale(256), RandomHorizontalFlip(0.5), RandomVerticalFlip(0.3), ToTensor()]),
     parser = argparse.ArgumentParser()
-    parser.add_argument('train_dir',help='enter train dataset path')
-    parser.add_argument('test_dir', help='enter test dataset path')
+    parser.add_argument('dataset_dir',help='enter dataset path')
     parser.add_argument('feed_dir', help='enter feed dataset path')
     parser.add_argument('save_dir', help='enter save dataset path')
     parser.add_argument('-model_type', type=str, default='autoencoder', choices=['autoencoder','ganomaly'])
@@ -377,6 +383,7 @@ if __name__ == '__main__':
     parser.add_argument('-chkpt','--checkpoint', default=[], help='enter checkpoint path for loading')
     parser.add_argument('-optim', '--optimizer', default='Adam', choices=['Adam','SGD'], help='enter checkpoint path for loading')
     parser.add_argument("-v", '--verbose', action='store_true')
+    parser.add_argument("-loss_weights", type=json.loads, default={'l_enc':1,'l_recon':50}, help='loss weights for ganomaly default {l_enc:1,l_rec:50}')
     args = parser.parse_args()
     train_transforms = []
     test_transforms = []
@@ -397,9 +404,12 @@ if __name__ == '__main__':
     print(args)
     if hyperparameters['model_type'] == 'autoencoder':
         model = Autoencoder(color_channels=args.color_channels)
+        hyperparameters['loss_weights'] = np.NaN
     else:
         model = GANomaly(color_channels=args.color_channels)
-    pipeline = ModelEvaluationPipeline(model,args.train_dir,args.test_dir,args.feed_dir,args.save_dir,hyperparameters)
+        if hyperparameters['model_name'].startswith('ae'):
+            hyperparameters['model_name'] = f'ganomaly_{datetime.now().strftime("%d%m%y")}'
+    pipeline = ModelEvaluationPipeline(model,args.dataset_dir,args.feed_dir,args.save_dir,hyperparameters)
     pipeline(evaluate=(not args.dont_evaluate), checkpoint=args.checkpoint, verbose=args.verbose)
 
 
