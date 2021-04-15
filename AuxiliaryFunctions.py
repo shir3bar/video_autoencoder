@@ -11,6 +11,8 @@ import cv2
 import io
 from PIL import Image, ImageSequence
 from moviepy.editor import ImageSequenceClip
+from sklearn.metrics import auc
+
 
 
 def get_plottable_frame(frame):
@@ -197,3 +199,43 @@ def write_gif_fish(recon,directory,samp_id, heatmap=False):
         frames[i,:,:,:] = frame
     clip = ImageSequenceClip(list(frames), fps=20)
     clip.write_gif(os.path.join(directory,f'l1_recon_{samp_id}'), fps=10, verbose=False, logger=None)
+
+def roc_curve(errors, labels):
+    # a label of 1 is anomaly, a label of 0 is normal,
+    # errors are the average reconstruction error for each sample, they'll be our normality score for now
+    max_error = max(errors)  # get max error
+    tpr = np.zeros(len(errors))
+    fpr = np.zeros(len(errors))
+    precision = np.zeros(len(errors))
+    threshes = np.zeros(len(errors))
+    for i, thres in enumerate(np.linspace(0, max_error, len(errors))):
+    # iterate over the space of possible thresholds
+        new_labels = errors > thres  # get the new labels
+        tp = sum((new_labels + labels) == 2)
+        fn = new_labels[(new_labels != labels) & (new_labels == 0)].size
+        fp = new_labels[(new_labels != labels) & (new_labels == 1)].size
+        tn = sum((new_labels + labels) == 0)
+        precision[i] = tp / (tp + fp)
+        # Recall = tpr
+        tpr[i] = tp / (tp + fn)
+        fpr[i] = fp / (fp + tn)
+        threshes[i] = thres
+    auc_score = auc(fpr, tpr)
+    return auc_score,precision,fpr,tpr
+
+def roc_plots(auc_score,tpr,precision,save_dir='',save=True):
+    plt.figure(figsize=(15, 5))
+    plt.subplot(1, 2, 1)
+    plt.plot(fpr, tpr)
+    plt.ylabel('tpr')
+    plt.xlabel('fpr')
+    plt.title('ROC Curve')
+    plt.text(0.8, 0.2, f'AUC score: {auc_score:.3f}')
+    plt.subplot(1, 2, 2)
+    plt.plot(tpr, precision)
+    plt.ylabel('Recall')
+    plt.xlabel('Precision')
+    plt.title('Precision-Recall Curve')
+    if save:
+        plt.savefig(os.path.join(save_dir, 'ROC-PR.jpg'), dpi=200)
+        plt.close()

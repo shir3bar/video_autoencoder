@@ -2,7 +2,7 @@ from Net import Autoencoder, GANomaly
 import argparse
 import torch.nn as nn
 import pandas as pd
-from AuxiliaryFunctions import save_checkpoint, save_recon, error_by_frame,write_gif_fish,write_movie
+from AuxiliaryFunctions import save_recon, error_by_frame,write_gif_fish,write_movie
 from VideoDataset import VideoDataset
 from VideoTransforms import *
 from torch.utils.data import DataLoader
@@ -30,14 +30,19 @@ class BaseAE():
         self.verbose=verbose
         self.train_losses = {}
         self.val_losses = {}
+        self.best_loss = np.inf
+        self.best_epoch = 0
 
-    def calc_loss(self,clips,validate=False):
+    def calc_loss(self,clips,validate=False,test=False):
         reconstruction = self.model(clips)
         loss = self.recon_loss(clips, reconstruction)
         if not validate:
             loss.backward()
         running_loss = loss.item() * clips.size(0)
-        return running_loss
+        if not test:
+            return running_loss
+        else:
+            return running_loss, reconstruction
 
     def train_one_epoch(self):
         running_loss = 0.0
@@ -58,31 +63,49 @@ class BaseAE():
                 val_loss += self.calc_loss(val_clips,validate=True)
         return val_loss
 
+    def save_checkpoint(self,name,epoch,best=False):
+        directory = self.save_dir + '/checkpoints/'
+        if best:
+            model_name = f'{name}.pt'
+        else:
+            model_name = f'{name}_epoch{epoch}.pt'
+        path = os.path.join(directory, model_name)
+        if self.scheduler:
+            scheduler_state_dict = self.scheduler.load_state_dict()
+        else:
+            scheduler_state_dict = None
+        if not os.path.exists(directory):
+            os.mkdir(directory)
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'scheduler_state_dict': scheduler_state_dict,
+            'train_loss': self.train_losses[epoch],
+            'val_loss': self.val_losses[epoch],
+        }, path)
+
     def train(self,num_epochs,start_idx=0,evaluate=True):
-        sch=None
         print('Training')
         for epoch in range(start_idx,num_epochs):
             self.model.train()
-            self.train_losses[epoch] = self.train_one_epoch()/len(self.dataloaders['train'].dataset)
+            epoch_loss = self.train_one_epoch()/len(self.dataloaders['train'].dataset)
+            self.train_losses[epoch] = epoch_loss
             if evaluate:
-                self.val_losses[epoch] = self.validate()/len(self.dataloaders['validation'].dataset)
-                if self.scheduler:
-                    self.scheduler.step(self.val_losses[epoch])
-                    sch=self.scheduler.state_dict()
-            elif self.scheduler:
-                self.scheduler.step(self.train_losses[epoch])
-                sch = self.scheduler.state_dict()
+                # judge best by the val loss if validating:
+                epoch_loss = self.validate()/len(self.dataloaders['validation'].dataset)
+                self.val_losses[epoch] = epoch_loss
+            if self.scheduler:
+                self.scheduler.step(epoch_loss)
+            if epoch_loss < self.best_loss:
+                self.best_loss = epoch_loss
+                self.best_epoch = epoch
+                self.save_checkpoint(name=self.model._get_name()+'_best', epoch=epoch, best=True)
             if self.verbose:
                 print(f'Epoch {epoch} Training loss: {self.train_losses[epoch]:.4f}, Validation loss: {self.val_losses[epoch]:.4f}')
             if epoch%self.save_every == 0:
-                save_checkpoint(self.model, self.optimizer, epoch, train_loss=self.train_losses[epoch],
-                                scheduler_state_dict=sch,
-                                val_loss=self.val_losses[epoch], directory=self.save_dir+'/checkpoints/',
-                                name=self.model._get_name())
-        save_checkpoint(self.model, self.optimizer, epoch, train_loss=self.train_losses[epoch],
-                        scheduler_state_dict=sch,
-                        val_loss=self.val_losses[epoch], directory=self.save_dir + '/checkpoints/',
-                        name=self.model._get_name()+'_final')
+                self.save_checkpoint(name=self.model._get_name(),epoch=epoch)
+        self.save_checkpoint(name=self.model._get_name()+'_final',epoch=epoch)
 
 class GanomalyAE(BaseAE):
     def __init__(self,net,dataloaders,optimizer,recon_loss,save_dir,loss_weights={'l_enc':1,'l_recon':50},scheduler=False,verbose=False,save_every=10):
@@ -94,18 +117,21 @@ class GanomalyAE(BaseAE):
         self.loss_weights = loss_weights
 
 
-    def calc_loss(self, clips,validate=False):
+    def calc_loss(self, clips,validate=False,test=False):
         z_in, img_out, z_out = self.model(clips)
         loss = self.loss(clips,z_in,img_out,z_out)
         if not validate:
             loss.backward()
         running_loss = loss.item() * clips.size(0)
-        return running_loss
+        if not test:
+            return running_loss
+        else:
+            return running_loss,img_out
 
 
 
 class ModelEvaluationPipeline:
-    def __init__(self, model, ds_dir,feed_dir,save_dir,hyperparams,checkpoint=[]):#num_frames,batch_size,learning_rate,train_transforms,test_transforms,match_hist=False):
+    def __init__(self, model, ds_dir,feed_dir,save_dir,hyperparams,checkpoint=[],load=False):#num_frames,batch_size,learning_rate,train_transforms,test_transforms,match_hist=False):
         """
         
         :param model: model to train
@@ -141,11 +167,12 @@ class ModelEvaluationPipeline:
         self.start_idx=0
         if isinstance(checkpoint, str):
             print('Loading checkpoint...')
-            checkpoint = torch.load(checkpoint, map_location=self.device)
             self.load_checkpoint(checkpoint)
         self.save_dir = save_dir
-
-        self.make_subdirs()
+        if not load:
+            self.make_subdirs()
+        else:
+            self.results_dir = os.path.join(self.save_dir, 'reconstructions')
         if self.hyperparams['model_type'] == 'ganomaly':
             self.pipeline = GanomalyAE(model,{'train':self.train_loader,'validation':self.val_loader},
                                        self.optimizer,criterion,self.save_dir,
@@ -190,6 +217,7 @@ class ModelEvaluationPipeline:
         if os.path.exists(self.save_dir):
             self.save_dir += datetime.now().strftime("%H%M%S")
         os.mkdir(self.save_dir)
+
         self.results_dir = os.path.join(self.save_dir, 'reconstructions')
         os.mkdir(os.path.join(self.save_dir,'checkpoints'))
         os.mkdir(self.results_dir)
@@ -198,13 +226,14 @@ class ModelEvaluationPipeline:
         os.mkdir(os.path.join(self.results_dir, 'feed', 'sum_error_plots'))
         os.mkdir(os.path.join(self.results_dir, 'test', 'sum_error_plots'))
 
-    def load_checkpoint(self,checkpoint):
+    def load_checkpoint(self,checkpoint_path):
+        checkpoint = torch.load(checkpoint_path, map_location=self.device)
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.optimizer.lr = self.hyperparams['learning_rate']
         try:
             self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-        except KeyError:
+        except:
             self.scheduler=False
             print('scheduler not found')
         self.start_idx = checkpoint['epoch']
@@ -234,50 +263,56 @@ class ModelEvaluationPipeline:
         prediction = tmp.copy()
         return clip, prediction
 
-    def eval_category(self,category,dataloader,movie):
-        column_names = ['samp_id', 'category', 'avg_error', 'var_error', 'max_error']
+    def eval_category(self,category,dataloader,movie,write_results=True,model_type=None):
+        column_names = ['samp_id', 'category', 'avg_error', 'var_error', 'max_error','samp_loss']
         df = pd.DataFrame({column: [] for column in column_names})
-        self.model.eval()
+        self.pipeline.model.eval()
+        running_loss = 0.0
         with torch.no_grad():
             for i, batch in enumerate(dataloader):
                 clip = batch['clip'].to(self.device)
-                if self.hyperparams['model_type'] == 'ganomaly':
-                    _,prediction,_ = self.model(clip)
-                else:
-                    prediction = self.model(clip)
+                loss, prediction = self.pipeline.calc_loss(clip,validate=True,test=True)
+                running_loss += loss
                 vidpath = dataloader.dataset.file_paths[i]
                 vidname = os.path.basename(vidpath)
                 error = torch.sqrt((prediction - clip) ** 2)
                 if clip.shape[1] == 2:
                     clip, prediction = self.optic_flow_auxiliary(clip.cpu().numpy(),prediction.cpu().numpy())
                 d = {'samp_id': vidname, 'category': category, 'avg_error': error.mean().item(),
-                     'var_error': error.var().item(), 'max_error': error.max().item()}
+                     'var_error': error.var().item(), 'max_error': error.max().item(), 'samp_loss':loss}
                 df = df.append(d, ignore_index=True)
-                errorname = f"{''.join(vidname.split('.')[:-1])}.jpg"
-                gifname = f"{''.join(vidname.split('.')[:-1])}.gif"
-                error_by_frame(error, os.path.join(self.results_dir, category, 'sum_error_plots', errorname))
-                if movie:
-                    write_movie(prediction.cpu(),os.path.join(self.results_dir, category),vidname)
-                else:
-                    #write_gif_fish(clip, os.path.join(self.results_dir, category, 'original'), gifname)
-                    write_gif_fish(prediction.cpu(), os.path.join(self.results_dir, category), gifname)
+                if write_results:
+                    errorname = f"{''.join(vidname.split('.')[:-1])}.jpg"
+                    gifname = f"{''.join(vidname.split('.')[:-1])}.gif"
+                    error_by_frame(error, os.path.join(self.results_dir, category, 'sum_error_plots', errorname))
+                    if movie:
+                        write_movie(prediction.cpu(),os.path.join(self.results_dir, category),vidname)
+                    else:
+                        #write_gif_fish(clip, os.path.join(self.results_dir, category, 'original'), gifname)
+                        write_gif_fish(prediction.cpu(), os.path.join(self.results_dir, category), gifname)
             df.to_csv(os.path.join(self.results_dir, f'errors{category}.csv'))
-        return df
+            running_loss = running_loss/len(dataloader.dataset)
+        return df,running_loss
 
     def roc_plots(self):
         plt.figure(figsize=(15, 5))
         plt.subplot(1, 2, 1)
-        plt.plot(self.fpr, self.tpr)
+        plt.plot(self.best_model_metrics['fpr'], self.best_model_metrics['tpr'], label='lowest loss model')
+        plt.plot(self.last_model_metrics['fpr'], self.last_model_metrics['tpr'], label='last epoch model')
         plt.ylabel('tpr')
         plt.xlabel('fpr')
         plt.title('ROC Curve')
-        plt.text(0.8, 0.2, f'AUC score: {self.auc_score:.3f}')
-        plt.savefig(os.path.join(self.save_dir, 'ROC.jpg'), dpi=200)
+        plt.text(0.55, 0.2, f'Lowest Loss Model AUC score: {self.best_model_metrics["auc"]:.3f} \n '
+                           f'Last Model AUC score: {self.last_model_metrics["auc"]:.3f} ')
+        plt.legend()
+        #plt.savefig(os.path.join(self.save_dir, 'ROC.jpg'), dpi=200)
         plt.subplot(1, 2, 2)
-        plt.plot(self.tpr, self.precision)
+        plt.plot(self.best_model_metrics['tpr'], self.best_model_metrics['precision'],label='lowest loss model')
+        plt.plot(self.last_model_metrics['tpr'], self.last_model_metrics['precision'], label='last epoch model')
         plt.ylabel('Recall')
         plt.xlabel('Precision')
         plt.title('Precision-Recall Curve')
+        plt.legend()
         plt.savefig(os.path.join(self.save_dir, 'ROC-PR.jpg'), dpi=200)
         plt.close()
 
@@ -302,12 +337,12 @@ class ModelEvaluationPipeline:
             self.fpr[i] = fp / (fp + tn)
             self.threshes[i] = thres
         self.auc_score = auc(self.fpr, self.tpr)
-        self.roc_plots()
 
-    def evaluate_performance(self,movie=False):
-        self.model.eval()  # put the model in evaluation mode
-        test_df = self.eval_category('test',self.test_loader,movie)
-        feed_df = self.eval_category('feed',self.feed_loader,movie)
+
+    def evaluate_performance(self,movie=False, write_results=False):
+        test_df,test_loss = self.eval_category('test',self.test_loader,movie, write_results=write_results)
+        feed_df,feed_loss = self.eval_category('feed',self.feed_loader,movie, write_results=write_results)
+        print(f'Test loss was {test_loss}, feed loss was {feed_loss}')
         plt.figure(figsize=(10, 8))
         plt.hist(feed_df.avg_error, bins=10, alpha=0.5, label='feed')
         plt.hist(test_df.avg_error, bins=10, alpha=0.5, label='test')
@@ -322,6 +357,25 @@ class ModelEvaluationPipeline:
         self.roc_curve(errors, labels)
         print(f'AUC Score: {self.auc_score}')
 
+    def log_session(self,train_time):
+        model_params = self.hyperparams.copy()
+        model_params['dataset_name'] = os.path.basename(self.dataset_dir)
+        model_params['training_time'] = train_time
+        model_params['datetime'] = datetime.now().strftime('%d-%m-%y %H:%M:%S')
+        model_params['train_size'] = len(self.train_ds)
+        model_params['val_size'] = len(self.val_ds)
+        model_params['test_size'] = len(self.test_ds)
+        model_params['loss_weights'] = self.hyperparams['loss_weights']
+        model_params['best_epoch'] = self.pipeline.best_epoch
+        model_params['best_model_auc'] = self.best_model_metrics['auc']
+        model_params['last_model_auc'] = self.last_model_metrics['auc']
+        df = pd.DataFrame([model_params])
+        df = df[['datetime','model_name','dataset_name','train_size','val_size', 'test_size',
+                 'last_model_auc', 'best_model_auc','best_epoch',
+                 'training_time','num_epochs', 'loss_func','learning_rate','loss_weights',
+                 'weight_decay', 'batch_size','schedule', 'num_frames', 'match_hists','color_channels']]
+        df.to_csv(os.path.join(self.save_dir,'hyperparameters.csv'))
+
     def __call__(self,evaluate,checkpoint=[],verbose=True):
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -330,27 +384,34 @@ class ModelEvaluationPipeline:
         self.pipeline.train(self.hyperparams['num_epochs'], evaluate=evaluate, start_idx=self.start_idx)
         end = timer()
         train_time = end - start
-        print(f'elapsed training time {train_time} sec')
+        print(f'elapsed training time {train_time} sec, '
+              f'best model loss {self.pipeline.best_loss} at epoch {self.pipeline.best_epoch}')
         self.plot_loss(train_time)
         if evaluate:
-            self.evaluate_performance()
-        model_params = self.hyperparams.copy()
-        model_params['dataset_name'] = os.path.basename(self.dataset_dir)
-        model_params['auc_score'] = self.auc_score
-        model_params['training_time'] = train_time
-        model_params['datetime'] = datetime.now().strftime('%d-%m-%y %H:%M:%S')
-        model_params['train_size'] = len(self.train_ds)
-        model_params['val_size'] = len(self.val_ds)
-        model_params['test_size'] = len(self.test_ds)
-        model_params['loss_weights'] = self.hyperparams['loss_weights']
-        df = pd.DataFrame([model_params])
-        df = df[['datetime','model_name','dataset_name','train_size','val_size', 'test_size','auc_score',
-                 'training_time','num_epochs', 'loss_func','learning_rate','loss_weights',
-                 'weight_decay', 'batch_size','schedule', 'num_frames', 'match_hists','color_channels']]
-        df.to_csv(os.path.join(self.save_dir,'hyperparameters.csv'))
-        file = open(os.path.join(self.save_dir,'validation_indexs.txt'),mode='+w')
-        file.write('\n'.join(self.val_loader.dataset.file_paths))
-        file.close()
+            self.evaluate_performance(write_results=False)
+            self.last_model_metrics = {'auc':self.auc_score, 'precision':self.precision,
+                                       'fpr': self.fpr,'tpr':self.tpr}
+            best_checkpoint_path = os.path.join(self.save_dir,
+                                                'checkpoints',
+                                                f'{self.model._get_name()}_best.pt')
+            self.load_checkpoint(best_checkpoint_path)
+            print('Evaluating model.... ' + best_checkpoint_path)
+            self.evaluate_performance(write_results=False)
+            self.best_model_metrics = {'auc':self.auc_score, 'precision':self.precision,
+                                       'fpr': self.fpr,'tpr':self.tpr}
+
+            if self.last_model_metrics['auc']>self.auc_score:
+                best_checkpoint_path =  os.path.join(self.save_dir,
+                                    'checkpoints',
+                                    f'{self.model._get_name()}_final_epoch{self.hyperparams["num_epochs"]-1}.pt')
+                self.load_checkpoint(best_checkpoint_path)
+                new_name =  os.path.join(self.save_dir,
+                                    'checkpoints', f'{self.model._get_name()}_final_best.pt')
+                os.rename(best_checkpoint_path,new_name)
+            print('Writing results with model.... ' + best_checkpoint_path)
+            self.evaluate_performance(write_results=True)
+            self.roc_plots()
+        self.log_session(train_time)
 
 
 
