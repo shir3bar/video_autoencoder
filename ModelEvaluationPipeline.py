@@ -1,4 +1,4 @@
-from Net import Autoencoder, GANomaly
+from Net import Autoencoder, GANomaly, BN_Autoencoder
 import argparse
 import torch.nn as nn
 import pandas as pd
@@ -131,7 +131,8 @@ class GanomalyAE(BaseAE):
 
 
 class ModelEvaluationPipeline:
-    def __init__(self, model, ds_dir,feed_dir,save_dir,hyperparams,checkpoint=[],load=False):#num_frames,batch_size,learning_rate,train_transforms,test_transforms,match_hist=False):
+    def __init__(self, model, ds_dir,feed_dir,save_dir,hyperparams,checkpoint=[],load=False,
+                 load_weights=True,weight_dir=''):#num_frames,batch_size,learning_rate,train_transforms,test_transforms,match_hist=False):
         """
         
         :param model: model to train
@@ -146,6 +147,7 @@ class ModelEvaluationPipeline:
         self.dataset_dir = ds_dir
         self.feed_dir = feed_dir
         self.hyperparams = hyperparams
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.prep_loaders()
         print(f'Train: {len(self.train_ds)}, Validation:{len(self.val_ds)}, '
               f'Test: {len(self.test_ds)}, Feed: {len(self.feed_ds)}')
@@ -173,18 +175,20 @@ class ModelEvaluationPipeline:
             self.make_subdirs()
         else:
             self.results_dir = os.path.join(self.save_dir, 'reconstructions')
+        if load_weights:
+            self.load_weight_init(weight_dir)
         if self.hyperparams['model_type'] == 'ganomaly':
-            self.pipeline = GanomalyAE(model,{'train':self.train_loader,'validation':self.val_loader},
+            self.pipeline = GanomalyAE(self.model,{'train':self.train_loader,'validation':self.val_loader},
                                        self.optimizer,criterion,self.save_dir,
                                        loss_weights=self.hyperparams['loss_weights'],
                                        scheduler=self.scheduler,
                                        verbose=self.hyperparams['verbose'], save_every=10)
         else:
-            self.pipeline = BaseAE(model,{'train':self.train_loader,'validation':self.val_loader},
+            self.pipeline = BaseAE(self.model,{'train':self.train_loader,'validation':self.val_loader},
                                        self.optimizer, criterion, self.save_dir,
                                        scheduler=self.scheduler,
                                        verbose=self.hyperparams['verbose'], save_every=10)
-        self.device = self.pipeline.device
+
 
     def prep_loaders(self):
         train_dir = os.path.join(self.dataset_dir,'train')
@@ -225,6 +229,14 @@ class ModelEvaluationPipeline:
         os.mkdir(os.path.join(self.results_dir, 'test'))
         os.mkdir(os.path.join(self.results_dir, 'feed', 'sum_error_plots'))
         os.mkdir(os.path.join(self.results_dir, 'test', 'sum_error_plots'))
+        torch.save({'model_state_dict': self.model.state_dict()},
+                   os.path.join(self.save_dir, 'checkpoints','weight_initialization.pt'))
+
+    def load_weight_init(self,checkpoint_path):
+        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        print(f'Loading weights for file {checkpoint_path}')
+        self.model.load_state_dict(checkpoint['model_state_dict'])
+
 
     def load_checkpoint(self,checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
@@ -247,10 +259,13 @@ class ModelEvaluationPipeline:
             plt.legend(['train','validation'])
             plt.xlabel('epoch')
             plt.ylabel('loss')
-            plt.title(f'{self.hyperparams["loss_func"]} Loss {self.hyperparams["optimizer"]} Optimizer With Weight Decay - \n '
+            plt.title(f'self.hyperparams["model_name"] '
+                      f'{self.hyperparams["loss_func"]} Loss \n'
+                      f'{self.hyperparams["optimizer"]} Optimizer With Weight Decay '
+                      f'{self.hyperparams["weight_decay"]}- \n '
                       f'lr:{self.hyperparams["learning_rate"]}, {self.hyperparams["num_frames"]} frames, '
                       f'training time: {train_time/3600:.2f} hrs')
-            plt.savefig(os.path.join(self.save_dir,'ds_lossvsepoch.png'))
+            plt.savefig(os.path.join(self.save_dir,f'{self.hyperparams["model_name"]}_ds_lossvsepoch.png'))
             plt.close()
 
     @staticmethod
@@ -313,7 +328,7 @@ class ModelEvaluationPipeline:
         plt.xlabel('Precision')
         plt.title('Precision-Recall Curve')
         plt.legend()
-        plt.savefig(os.path.join(self.save_dir, 'ROC-PR.jpg'), dpi=200)
+        plt.savefig(os.path.join(self.save_dir, f'{self.hyperparams["model_name"]}ROC-PR.jpg'), dpi=200)
         plt.close()
 
     def roc_curve(self,errors, labels):
@@ -359,7 +374,7 @@ class ModelEvaluationPipeline:
 
     def log_session(self,train_time):
         model_params = self.hyperparams.copy()
-        model_params['dataset_name'] = os.path.basename(self.dataset_dir)
+        model_params['dataset_name'] = os.path.dirname(self.dataset_dir)
         model_params['training_time'] = train_time
         model_params['datetime'] = datetime.now().strftime('%d-%m-%y %H:%M:%S')
         model_params['train_size'] = len(self.train_ds)
@@ -370,11 +385,11 @@ class ModelEvaluationPipeline:
         model_params['best_model_auc'] = self.best_model_metrics['auc']
         model_params['last_model_auc'] = self.last_model_metrics['auc']
         df = pd.DataFrame([model_params])
-        df = df[['datetime','model_name','dataset_name','train_size','val_size', 'test_size',
+        df = df[['model_name','datetime','loss_weights','dataset_name','train_size','val_size', 'test_size',
                  'last_model_auc', 'best_model_auc','best_epoch',
-                 'training_time','num_epochs', 'loss_func','learning_rate','loss_weights',
+                 'num_epochs', 'training_time','loss_func','learning_rate',
                  'weight_decay', 'batch_size','schedule', 'num_frames', 'match_hists','color_channels']]
-        df.to_csv(os.path.join(self.save_dir,'hyperparameters.csv'))
+        df.to_csv(os.path.join(self.save_dir,f'{self.hyperparams["model_name"]}_train_log.csv'))
 
     def __call__(self,evaluate,checkpoint=[],verbose=True):
         if torch.cuda.is_available():
@@ -424,7 +439,7 @@ if __name__ == '__main__':
     parser.add_argument('dataset_dir',help='enter dataset path')
     parser.add_argument('feed_dir', help='enter feed dataset path')
     parser.add_argument('save_dir', help='enter save dataset path')
-    parser.add_argument('-model_type', type=str, default='autoencoder', choices=['autoencoder','ganomaly'])
+    parser.add_argument('-model_type', type=str, default='autoencoder', choices=['autoencoder','ganomaly','bn_autoencoder'])
     parser.add_argument('-epochs', '--num_epochs', type=int, default=200, help='number of training epochs')
     parser.add_argument('-lr','--learning_rate',type=float, default=1e-3, help='optimizer learning rate')
     parser.add_argument('-weight_decay', type=float, default=1e-5, help='weight decay for optimization')
@@ -445,6 +460,8 @@ if __name__ == '__main__':
     parser.add_argument('-optim', '--optimizer', default='Adam', choices=['Adam','SGD'], help='enter checkpoint path for loading')
     parser.add_argument("-v", '--verbose', action='store_true')
     parser.add_argument("-loss_weights", type=json.loads, default={'l_enc':1,'l_recon':50}, help='loss weights for ganomaly default {l_enc:1,l_rec:50}')
+    parser.add_argument('-load_weights', action='store_true',help='should weight initialization be loaded')
+    parser.add_argument('-weight_dir', type=str, default='', help='path for weights to initialize')
     args = parser.parse_args()
     train_transforms = []
     test_transforms = []
@@ -466,11 +483,16 @@ if __name__ == '__main__':
     if hyperparameters['model_type'] == 'autoencoder':
         model = Autoencoder(color_channels=args.color_channels)
         hyperparameters['loss_weights'] = np.NaN
+    elif hyperparameters['model_type'] == 'bn_autoencoder':
+        model = BN_Autoencoder(color_channels=args.color_channels)
+        hyperparameters['loss_weights'] = np.NaN
+        hyperparameters['model_name'] = f'bn_autoencoder_{datetime.now().strftime("%d%m%y")}'
     else:
         model = GANomaly(color_channels=args.color_channels)
         if hyperparameters['model_name'].startswith('ae'):
             hyperparameters['model_name'] = f'ganomaly_{datetime.now().strftime("%d%m%y")}'
-    pipeline = ModelEvaluationPipeline(model,args.dataset_dir,args.feed_dir,args.save_dir,hyperparameters)
+    pipeline = ModelEvaluationPipeline(model, args.dataset_dir, args.feed_dir, args.save_dir,hyperparameters,
+                                       load_weights=args.load_weights, weight_dir=args.weight_dir)
     pipeline(evaluate=(not args.dont_evaluate), checkpoint=args.checkpoint, verbose=args.verbose)
 
 

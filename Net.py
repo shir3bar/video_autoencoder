@@ -65,6 +65,18 @@ class Autoencoder(nn.Module):
         x = self.decoder(x, indices, output_size)
         return x
 
+class BN_Autoencoder(Autoencoder):
+    def __init__(self,color_channels=1):
+        super(BN_Autoencoder,self).__init__(color_channels)
+        self.conv2 = nn.Sequential(self.conv2,nn.BatchNorm3d(self.conv2.out_channels))
+        self.conv3 = nn.Sequential(self.conv3, nn.BatchNorm3d(self.conv3.out_channels))
+        self.conv4 = nn.Sequential(self.conv4,nn.BatchNorm3d(self.conv4.out_channels))
+        self.conv5 = nn.Sequential(self.conv5, nn.BatchNorm3d(self.conv5.out_channels))
+        self.convt5 = nn.Sequential(self.convt5, nn.BatchNorm3d(self.convt5.out_channels))
+        self.convt4 = nn.Sequential(self.convt4, nn.BatchNorm3d(self.convt4.out_channels))
+        self.convt3 = nn.Sequential(self.convt3, nn.BatchNorm3d(self.convt3.out_channels))
+        self.convt2 = nn.Sequential(self.convt2, nn.BatchNorm3d(self.convt2.out_channels))
+
 
 class GANomaly(Autoencoder):
     def __init__(self,color_channels):
@@ -105,5 +117,6 @@ class GANomaly(Autoencoder):
         img_out = self.decoder(z_in,indices,output_size)
         z_out, _, _ = self.encoder2(img_out)
         return z_in, img_out, z_out
+
 
 
