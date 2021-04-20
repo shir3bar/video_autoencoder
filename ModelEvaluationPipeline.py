@@ -1,4 +1,4 @@
-from Net import Autoencoder, GANomaly, BN_Autoencoder
+from Net import Autoencoder, GANomaly, BN_Autoencoder,BN_GANomaly
 import argparse
 import torch.nn as nn
 import pandas as pd
@@ -177,7 +177,8 @@ class ModelEvaluationPipeline:
             self.results_dir = os.path.join(self.save_dir, 'reconstructions')
         if load_weights:
             self.load_weight_init(weight_dir)
-        if self.hyperparams['model_type'] == 'ganomaly':
+        if 'ganomaly' in self.hyperparams['model_type']:
+            print('Loading a GANomaly type pipeline')
             self.pipeline = GanomalyAE(self.model,{'train':self.train_loader,'validation':self.val_loader},
                                        self.optimizer,criterion,self.save_dir,
                                        loss_weights=self.hyperparams['loss_weights'],
@@ -188,7 +189,6 @@ class ModelEvaluationPipeline:
                                        self.optimizer, criterion, self.save_dir,
                                        scheduler=self.scheduler,
                                        verbose=self.hyperparams['verbose'], save_every=10)
-
 
     def prep_loaders(self):
         train_dir = os.path.join(self.dataset_dir,'train')
@@ -236,7 +236,6 @@ class ModelEvaluationPipeline:
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
         print(f'Loading weights for file {checkpoint_path}')
         self.model.load_state_dict(checkpoint['model_state_dict'])
-
 
     def load_checkpoint(self,checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
@@ -439,7 +438,8 @@ if __name__ == '__main__':
     parser.add_argument('dataset_dir',help='enter dataset path')
     parser.add_argument('feed_dir', help='enter feed dataset path')
     parser.add_argument('save_dir', help='enter save dataset path')
-    parser.add_argument('-model_type', type=str, default='autoencoder', choices=['autoencoder','ganomaly','bn_autoencoder'])
+    parser.add_argument('-model_type', type=str, default='autoencoder', choices=['autoencoder','ganomaly',
+                                                                                 'bn_autoencoder','bn_ganomaly'])
     parser.add_argument('-epochs', '--num_epochs', type=int, default=200, help='number of training epochs')
     parser.add_argument('-lr','--learning_rate',type=float, default=1e-3, help='optimizer learning rate')
     parser.add_argument('-weight_decay', type=float, default=1e-5, help='weight decay for optimization')
@@ -487,10 +487,16 @@ if __name__ == '__main__':
         model = BN_Autoencoder(color_channels=args.color_channels)
         hyperparameters['loss_weights'] = np.NaN
         hyperparameters['model_name'] = f'bn_autoencoder_{datetime.now().strftime("%d%m%y")}'
-    else:
+
+    elif hyperparameters['model_type'] == 'bn_ganomaly':
+        model = BN_GANomaly(color_channels=args.color_channels)
+        hyperparameters['model_name'] = f'bn_ganomaly{datetime.now().strftime("%d%m%y")}'
+    elif hyperparameters['model_type'] == 'ganomaly':
         model = GANomaly(color_channels=args.color_channels)
         if hyperparameters['model_name'].startswith('ae'):
             hyperparameters['model_name'] = f'ganomaly_{datetime.now().strftime("%d%m%y")}'
+    else:
+        raise Exception('Model type not supported')
     pipeline = ModelEvaluationPipeline(model, args.dataset_dir, args.feed_dir, args.save_dir,hyperparameters,
                                        load_weights=args.load_weights, weight_dir=args.weight_dir)
     pipeline(evaluate=(not args.dont_evaluate), checkpoint=args.checkpoint, verbose=args.verbose)

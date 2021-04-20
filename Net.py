@@ -79,7 +79,7 @@ class BN_Autoencoder(Autoencoder):
 
 
 class GANomaly(Autoencoder):
-    def __init__(self,color_channels):
+    def __init__(self,color_channels=1):
         super(GANomaly, self).__init__(color_channels)
         self.conv6 = nn.Conv3d(color_channels, 8, 3)
         self.conv7 = nn.Conv3d(8, 16, 3)
@@ -118,5 +118,44 @@ class GANomaly(Autoencoder):
         z_out, _, _ = self.encoder2(img_out)
         return z_in, img_out, z_out
 
+class BN_GANomaly(BN_Autoencoder):
+    def __init__(self,color_channels=1):
+        super(BN_GANomaly, self).__init__(color_channels)
+        self.conv6 = nn.Conv3d(color_channels, 8, 3)
+        self.conv7 = nn.Sequential(nn.Conv3d(8, 16, 3), nn.BatchNorm3d(16))
+        self.conv8 = nn.Sequential(nn.Conv3d(16, 32, 3), nn.BatchNorm3d(32))
+        self.conv9 = nn.Sequential(nn.Conv3d(32, 64, 3), nn.BatchNorm3d(64))
+        self.conv10 = nn.Sequential(nn.Conv3d(64, 128, 3), nn.BatchNorm3d(128))
+
+    def encoder2(self, x):
+        indices = []
+        output_size = []
+        x = F.relu(self.conv6(x))
+        output_size.append(x.size())
+        x, index = self.maxpool1(x)
+        indices.append(index)
+        x = F.relu(self.conv7(x))
+        output_size.append(x.size())
+        x, index = self.maxpool1(x)
+        indices.append(index)
+        x = F.relu(self.conv8(x))
+        output_size.append(x.size())
+        x, index = self.maxpool1(x)
+        indices.append(index)
+        x = F.relu(self.conv9(x))
+        output_size.append(x.size())
+        x, index = self.maxpool1(x)
+        indices.append(index)
+        x = F.relu(self.conv10(x))
+        output_size.append(x.size())
+        x, index = self.maxpool1(x)
+        indices.append(index)
+        return x, indices, output_size
+
+    def forward(self, x):
+        z_in, indices, output_size = self.encoder(x)
+        img_out = self.decoder(z_in,indices,output_size)
+        z_out, _, _ = self.encoder2(img_out)
+        return z_in, img_out, z_out
 
 
