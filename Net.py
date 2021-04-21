@@ -61,9 +61,9 @@ class Autoencoder(nn.Module):
         return x
 
     def forward(self, x):
-        x, indices, output_size = self.encoder(x)
-        x = self.decoder(x, indices, output_size)
-        return x
+        z, indices, output_size = self.encoder(x)
+        x = self.decoder(z, indices, output_size)
+        return x, z
 
 class BN_Autoencoder(Autoencoder):
     def __init__(self,color_channels=1):
