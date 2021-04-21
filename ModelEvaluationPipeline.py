@@ -8,7 +8,7 @@ from VideoTransforms import *
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from timeit import default_timer as timer
-from sklearn.metrics import auc
+from sklearn.metrics import roc_auc_score, roc_curve, precision_recall_curve
 from datetime import datetime
 import matplotlib.pyplot as plt
 import json
@@ -35,7 +35,7 @@ class BaseAE():
 
     def calc_loss(self,clips,validate=False,test=False):
         reconstruction = self.model(clips)
-        loss = self.recon_loss(clips, reconstruction)
+        loss = self.recon_loss(reconstruction, clips)
         if not validate:
             loss.backward()
         running_loss = loss.item() * clips.size(0)
@@ -112,8 +112,8 @@ class GanomalyAE(BaseAE):
         super().__init__(net,dataloaders,optimizer,recon_loss,save_dir,scheduler,verbose,save_every)
         self.enc_loss = nn.MSELoss()
         self.loss = lambda img_in,z_in,img_out,z_out: \
-            loss_weights['l_enc']*self.enc_loss(z_in,z_out) + \
-            loss_weights['l_recon']*self.recon_loss(img_in,img_out)
+            loss_weights['l_enc']*self.enc_loss(z_out,z_in) + \
+            loss_weights['l_recon']*self.recon_loss(img_out, img_in)
         self.loss_weights = loss_weights
 
 
@@ -258,7 +258,7 @@ class ModelEvaluationPipeline:
             plt.legend(['train','validation'])
             plt.xlabel('epoch')
             plt.ylabel('loss')
-            plt.title(f'self.hyperparams["model_name"] '
+            plt.title(f'{self.hyperparams["model_name"]}'
                       f'{self.hyperparams["loss_func"]} Loss \n'
                       f'{self.hyperparams["optimizer"]} Optimizer With Weight Decay '
                       f'{self.hyperparams["weight_decay"]}- \n '
@@ -321,8 +321,8 @@ class ModelEvaluationPipeline:
         plt.legend()
         #plt.savefig(os.path.join(self.save_dir, 'ROC.jpg'), dpi=200)
         plt.subplot(1, 2, 2)
-        plt.plot(self.best_model_metrics['tpr'], self.best_model_metrics['precision'],label='lowest loss model')
-        plt.plot(self.last_model_metrics['tpr'], self.last_model_metrics['precision'], label='last epoch model')
+        plt.plot(self.best_model_metrics['recall'], self.best_model_metrics['precision'],label='lowest loss model')
+        plt.plot(self.last_model_metrics['recall'], self.last_model_metrics['precision'], label='last epoch model')
         plt.ylabel('Recall')
         plt.xlabel('Precision')
         plt.title('Precision-Recall Curve')
@@ -330,28 +330,29 @@ class ModelEvaluationPipeline:
         plt.savefig(os.path.join(self.save_dir, f'{self.hyperparams["model_name"]}ROC-PR.jpg'), dpi=200)
         plt.close()
 
-    def roc_curve(self,errors, labels):
+    def calc_metrics(self,errors, labels):
         # a label of 1 is anomaly, a label of 0 is normal,
         # errors are the average reconstruction error for each sample, they'll be our normality score for now
-        max_error = max(errors)  # get max error
-        self.tpr = np.zeros(len(errors))
-        self.fpr = np.zeros(len(errors))
-        self.precision = np.zeros(len(errors))
-        self.threshes = np.zeros(len(errors))
-        for i, thres in enumerate(np.linspace(0, max_error, len(errors))):
-            # iterate over the space of possible thresholds
-            new_labels = errors > thres  # get the new labels
-            tp = sum((new_labels + labels) == 2)
-            fn = new_labels[(new_labels != labels) & (new_labels == 0)].size
-            fp = new_labels[(new_labels != labels) & (new_labels == 1)].size
-            tn = sum((new_labels + labels) == 0)
-            self.precision[i] = tp / (tp + fp)
-            # Recall = tpr
-            self.tpr[i] = tp / (tp + fn)
-            self.fpr[i] = fp / (fp + tn)
-            self.threshes[i] = thres
-        self.auc_score = auc(self.fpr, self.tpr)
-
+        # max_error = max(errors)  # get max error
+        # self.tpr = np.zeros(len(errors))
+        # self.fpr = np.zeros(len(errors))
+        # self.precision = np.zeros(len(errors))
+        # self.threshes = np.zeros(len(errors))
+        # for i, thres in enumerate(np.linspace(0, max_error, len(errors))):
+        #     # iterate over the space of possible thresholds
+        #     new_labels = errors > thres  # get the new labels
+        #     tp = sum((new_labels + labels) == 2)
+        #     fn = new_labels[(new_labels != labels) & (new_labels == 0)].size
+        #     fp = new_labels[(new_labels != labels) & (new_labels == 1)].size
+        #     tn = sum((new_labels + labels) == 0)
+        #     self.precision[i] = tp / (tp + fp)
+        #     # Recall = tpr
+        #     self.tpr[i] = tp / (tp + fn)
+        #     self.fpr[i] = fp / (fp + tn)
+        #     self.threshes[i] = thres
+        self.auc_score = roc_auc_score(labels, errors)
+        self.fpr, self.tpr, thres = roc_curve(labels, errors)
+        self.precision, self.recall, thres = precision_recall_curve(labels, errors)
 
     def evaluate_performance(self,movie=False, write_results=False):
         test_df,test_loss = self.eval_category('test',self.test_loader,movie, write_results=write_results)
@@ -368,13 +369,13 @@ class ModelEvaluationPipeline:
         swim_labels = np.zeros(len(swim_error))
         labels = np.concatenate([feed_labels, swim_labels])
         errors = np.concatenate([feed_error, swim_error])
-        self.roc_curve(errors, labels)
+        self.calc_metrics(errors, labels)
         print(f'AUC Score: {self.auc_score}')
 
     def log_session(self,train_time):
         model_params = self.hyperparams.copy()
         model_params['dataset_name'] = os.path.dirname(self.dataset_dir)
-        model_params['training_time'] = train_time
+        model_params['training_time'] = train_time/3600
         model_params['datetime'] = datetime.now().strftime('%d-%m-%y %H:%M:%S')
         model_params['train_size'] = len(self.train_ds)
         model_params['val_size'] = len(self.val_ds)
@@ -404,7 +405,7 @@ class ModelEvaluationPipeline:
         if evaluate:
             self.evaluate_performance(write_results=False)
             self.last_model_metrics = {'auc':self.auc_score, 'precision':self.precision,
-                                       'fpr': self.fpr,'tpr':self.tpr}
+                                       'fpr': self.fpr,'tpr':self.tpr, 'recall':self.recall}
             best_checkpoint_path = os.path.join(self.save_dir,
                                                 'checkpoints',
                                                 f'{self.model._get_name()}_best.pt')
@@ -412,7 +413,7 @@ class ModelEvaluationPipeline:
             print('Evaluating model.... ' + best_checkpoint_path)
             self.evaluate_performance(write_results=False)
             self.best_model_metrics = {'auc':self.auc_score, 'precision':self.precision,
-                                       'fpr': self.fpr,'tpr':self.tpr}
+                                       'fpr': self.fpr,'tpr':self.tpr,'recall':self.recall}
 
             if self.last_model_metrics['auc']>self.auc_score:
                 best_checkpoint_path =  os.path.join(self.save_dir,
