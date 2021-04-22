@@ -1,4 +1,5 @@
 from Net import Autoencoder, GANomaly, BN_Autoencoder,BN_GANomaly
+from GANomaly_model import Net as GANomaly_real
 import argparse
 import torch.nn as nn
 import pandas as pd
@@ -118,7 +119,7 @@ class GanomalyAE(BaseAE):
 
 
     def calc_loss(self, clips,validate=False,test=False):
-        z_in, img_out, z_out = self.model(clips)
+        img_out, z_in,  z_out = self.model(clips)
         loss = self.loss(clips,z_in,img_out,z_out)
         if not validate:
             loss.backward()
@@ -493,7 +494,7 @@ if __name__ == '__main__':
         model = BN_GANomaly(color_channels=args.color_channels)
         hyperparameters['model_name'] = f'bn_ganomaly{datetime.now().strftime("%d%m%y")}'
     elif hyperparameters['model_type'] == 'ganomaly':
-        model = GANomaly(color_channels=args.color_channels)
+        model = GANomaly_real(color_channels=args.color_channels,num_frames=hyperparameters['num_frames'])
         if hyperparameters['model_name'].startswith('ae'):
             hyperparameters['model_name'] = f'ganomaly_{datetime.now().strftime("%d%m%y")}'
     else:
