@@ -480,7 +480,7 @@ if __name__ == '__main__':
         hyperparameters[param] = vars(args)[param]
     hyperparameters['train_transforms'] = train_transforms
     hyperparameters['test_transforms'] = test_transforms
-    print(args)
+    #print(args)
     if hyperparameters['model_type'] == 'autoencoder':
         model = Autoencoder(color_channels=args.color_channels)
         hyperparameters['loss_weights'] = np.NaN
@@ -498,6 +498,7 @@ if __name__ == '__main__':
             hyperparameters['model_name'] = f'ganomaly_{datetime.now().strftime("%d%m%y")}'
     else:
         raise Exception('Model type not supported')
+    print(hyperparameters)
     pipeline = ModelEvaluationPipeline(model, args.dataset_dir, args.feed_dir, args.save_dir,hyperparameters,
                                        load_weights=args.load_weights, weight_dir=args.weight_dir)
     pipeline(evaluate=(not args.dont_evaluate), checkpoint=args.checkpoint, verbose=args.verbose)
