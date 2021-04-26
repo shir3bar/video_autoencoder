@@ -9,55 +9,82 @@ class Autoencoder(nn.Module):
 
     def __init__(self, color_channels):
         super(Autoencoder, self).__init__()
-        self.conv1 = nn.Conv3d(color_channels, 8, 3) # 1x20x256x256
-        self.conv2 = nn.Conv3d(8, 16, 3) #
-        self.conv3 = nn.Conv3d(16, 32, 3)
-        self.conv4 = nn.Conv3d(32, 64, 3)
-        self.conv5 = nn.Conv3d(64, 128, 3)
-        self.maxpool1 = nn.MaxPool3d((1, 2, 2), return_indices=True)
-        self.unpool1 = nn.MaxUnpool3d((1, 2, 2))
-        self.convt1 = nn.ConvTranspose3d(128, 64, 3)
-        self.convt2 = nn.ConvTranspose3d(64, 32, 3)
-        self.convt3 = nn.ConvTranspose3d(32, 16, 3)
-        self.convt4 = nn.ConvTranspose3d(16, 8, 3)
-        self.convt5 = nn.ConvTranspose3d(8, color_channels, 3)
+        # self.conv1 = nn.Conv3d(color_channels, 8, 3) # 1x20x256x256
+        # self.conv2 = nn.Conv3d(8, 16, 3) #
+        # self.conv3 = nn.Conv3d(16, 32, 3)
+        # self.conv4 = nn.Conv3d(32, 64, 3)
+        # self.conv5 = nn.Conv3d(64, 128, 3)
+        # self.maxpool1 = nn.MaxPool3d((1, 2, 2), return_indices=True)
+        # self.unpool1 = nn.MaxUnpool3d((1, 2, 2))
+        # self.convt1 = nn.ConvTranspose3d(128, 64, 3)
+        # self.convt2 = nn.ConvTranspose3d(64, 32, 3)
+        # self.convt3 = nn.ConvTranspose3d(32, 16, 3)
+        # self.convt4 = nn.ConvTranspose3d(16, 8, 3)
+        # self.convt5 = nn.ConvTranspose3d(8, color_channels, 3)
+        initial_filters=32
+        self.conv1 = nn.Conv3d(color_channels, initial_filters,kernel_size=3,stride=1,padding=1)
+        self.conv2 = nn.Conv3d(initial_filters, initial_filters*2, kernel_size=3,stride=1,padding=1) #
+        self.conv3 = nn.Conv3d(initial_filters*2, initial_filters*(2 ** 2), kernel_size=3,stride=1,padding=1)
+        self.conv4 = nn.Conv3d(initial_filters*(2 ** 2), initial_filters*(2 ** 3), kernel_size=3,stride=1,padding=1)
+        self.conv5 = nn.Conv3d(initial_filters*(2 ** 3), initial_filters*(2 ** 4), kernel_size=3,stride=1,padding=1)
+        self.conv6 = nn.Conv3d(initial_filters*(2 ** 4),initial_filters*(2 ** 5),kernel_size=3,stride=1,padding=1)
+        self.conv7 = nn.Conv3d(initial_filters*(2 ** 5),512,kernel_size=3,stride=1,padding=0)
+        self.convt1 = nn.ConvTranspose3d(512, initial_filters*(2 ** 5), kernel_size=3,stride=1,padding=0)
+        self.convt2 = nn.ConvTranspose3d(initial_filters*(2 ** 5), initial_filters*(2 ** 4), kernel_size=3,stride=1,padding=1)
+        self.convt3 = nn.ConvTranspose3d(initial_filters*(2 ** 4), initial_filters*(2 ** 3), kernel_size=3,stride=1,padding=1)
+        self.convt4 = nn.ConvTranspose3d(initial_filters*(2 ** 3), initial_filters*(2 ** 2), kernel_size=3,stride=1,padding=1)
+        self.convt5 = nn.ConvTranspose3d(initial_filters*(2 ** 2), initial_filters*2, kernel_size=3,stride=1,padding=1)
+        self.convt6 = nn.ConvTranspose3d(initial_filters*2, initial_filters, kernel_size=3,stride=1,padding=1)
+        self.convt7 = nn.ConvTranspose3d(initial_filters, color_channels, kernel_size=3,stride=1,padding=1)
 
     def encoder(self, x):
         indices = []
         output_size = []
         x = F.relu(self.conv1(x))
         output_size.append(x.size())
-        x, index = self.maxpool1(x)
+        x, index = F.max_pool3d(x,kernel_size=(2, 2, 2), stride=(1,2,2), return_indices=True)
         indices.append(index)
         x = F.relu(self.conv2(x))
         output_size.append(x.size())
-        x, index = self.maxpool1(x)
+        x, index = F.max_pool3d(x,kernel_size=(2, 2, 2), stride=(1,2,2),return_indices=True)
         indices.append(index)
         x = F.relu(self.conv3(x))
         output_size.append(x.size())
-        x, index = self.maxpool1(x)
+        x, index = F.max_pool3d(x,kernel_size=(2, 2, 2), stride=(1,2,2),return_indices=True)
         indices.append(index)
         x = F.relu(self.conv4(x))
         output_size.append(x.size())
-        x, index = self.maxpool1(x)
+        x, index = F.max_pool3d(x,kernel_size=(2, 2, 2),stride=(2,2,2),return_indices=True)
         indices.append(index)
         x = F.relu(self.conv5(x))
         output_size.append(x.size())
-        x, index = self.maxpool1(x)
+        x, index = F.max_pool3d(x,kernel_size=(2, 2, 2), stride=(2,2,2), return_indices=True)
         indices.append(index)
+        x = F.relu(self.conv6(x))
+        output_size.append(x.size())
+        x, index = F.max_pool3d(x,kernel_size=(2, 2, 2), stride=(2,2,2), return_indices=True)
+        indices.append(index)
+        x = self.conv7(x)
+        # output_size.append(x.size())
+        # x, index = F.max_pool3d(x,kernel_size=(2, 2, 2), stride=(2,2,2), return_indices=True)
+        # indices.append(index)
         return x, indices, output_size
 
     def decoder(self, x, indices, output_size):
-        x = self.unpool1(x, indices=indices.pop(-1), output_size=output_size.pop(-1))
-        x = F.relu(self.convt1(x))
-        x = self.unpool1(x, indices=indices.pop(-1), output_size=output_size.pop(-1))
+        # x = F.max_unpool3d(x, indices=indices.pop(-1),kernel_size=(2, 2, 2), stride=(2,2,2), output_size=output_size.pop(-1))
+        x = self.convt1(x)
+        x = F.max_unpool3d(x, indices=indices.pop(-1),kernel_size=(2, 2, 2), stride=(2,2,2), output_size=output_size.pop(-1))
         x = F.relu(self.convt2(x))
-        x = self.unpool1(x, indices=indices.pop(-1), output_size=output_size.pop(-1))
+        x = F.max_unpool3d(x, indices=indices.pop(-1),kernel_size=(2, 2, 2), stride=(2,2,2), output_size=output_size.pop(-1))
         x = F.relu(self.convt3(x))
-        x = self.unpool1(x, indices=indices.pop(-1), output_size=output_size.pop(-1))
+        x = F.max_unpool3d(x, indices=indices.pop(-1),kernel_size=(2, 2, 2), stride=(2,2,2), output_size=output_size.pop(-1))
         x = F.relu(self.convt4(x))
-        x = self.unpool1(x, indices=indices.pop(-1), output_size=output_size.pop(-1))
+        x = F.max_unpool3d(x, indices=indices.pop(-1), kernel_size=(2, 2, 2), stride=(1,2,2), output_size=output_size.pop(-1))
         x = F.relu(self.convt5(x))
+        x = F.max_unpool3d(x, indices=indices.pop(-1), kernel_size=(2, 2, 2), stride=(1,2,2), output_size=output_size.pop(-1))
+        x = F.relu(self.convt6(x))
+        x = F.max_unpool3d(x, indices=indices.pop(-1), kernel_size=(2, 2, 2), stride=(1,2,2), output_size=output_size.pop(-1))
+        x = F.relu(self.convt7(x))
         return x
 
     def forward(self, x):
@@ -166,35 +193,35 @@ class AutoencoderB(nn.Module):
     def __init__(self,color_channels):
         super(AutoencoderB, self).__init__()
         self.conv1 = nn.Sequential(nn.Conv3d(color_channels,64,kernel_size=3,padding=1),
-                                   nn.ReLU)
+                                   nn.ReLU())
         self.maxpool1 = nn.MaxPool3d(kernel_size=(2,2,2),stride=(1,2,2),return_indices=True)
         self.conv2 = nn.Sequential(nn.Conv3d(64,128,kernel_size=3,padding=1),
-                                   nn.ReLU)
+                                   nn.ReLU())
         self.maxpool2 = nn.MaxPool3d(kernel_size=(2,2,2),stride=(2,2,2),return_indices=True)
         self.conv3 = nn.Sequential(nn.Conv3d(128,256,kernel_size=3,padding=1),
                                    nn.ReLU(),
                                    nn.Conv3d(256,256,kernel_size=3,padding=1),
                                    nn.ReLU())
         self.maxpool3 = nn.MaxPool3d(kernel_size=(2,2,2),stride=(2,2,2),return_indices=True)
-        self.conv4 = nn.Sequential(nn.Conv3d(256,512,kernel_size=3,padding=1),
+        self.conv4 = nn.Sequential(nn.Conv3d(256,256,kernel_size=3,padding=1),
                                    nn.ReLU(),
-                                   nn.Conv3d(512,512,kernel_size=3,padding=1),
+                                   nn.Conv3d(256,256,kernel_size=3,padding=1),
                                    nn.ReLU())
-        # self.maxpool4 = nn.MaxPool3d(kernel_size=(2,2,2),stride=(2,2,2),return_indices=True)
-        # self.conv5 = nn.Sequential(nn.Conv3d(512,512,kernel_size=3,padding=1),
-        #                            nn.ReLU(),
-        #                            nn.Conv3d(512,512,kernel_size=3, padding=1),
-        #                            nn.ReLU())
-        self.maxpool4= nn.MaxPool3d(kernel_size=(1,2,2),stride=(2,2,2),padding=(0,1,1))
+        self.maxpool4 = nn.MaxPool3d(kernel_size=(2,2,2),stride=(2,2,2),return_indices=True)
+        self.conv5 = nn.Sequential(nn.Conv3d(256,256,kernel_size=3,padding=1),
+                                   nn.ReLU(),
+                                   nn.Conv3d(256,256,kernel_size=3, padding=1),
+                                   nn.ReLU())
+        self.maxpool5 = nn.MaxPool3d(kernel_size=(1,2,2),stride=(2,2,2),padding=(0,1,1), return_indices=True)
         self.unpool1 = nn.MaxUnpool3d(kernel_size =(1,2,2),stride=(2,2,2),padding=(0,1,1))
-        # self.convt1 = nn.Sequential(nn.ConvTranspose3d(512,512,kernel_size=3,padding=1),
-        #                            nn.ReLU(),
-        #                            nn.ConvTranspose3d(512,512,kernel_size=3, padding=1),
-        #                            nn.ReLU())
-        # self.unpool2 = nn.MaxUnpool3d(kernel_size=(2,2,2),stride=(2,2,2))
-        self.convt1 = nn.Sequential(nn.ConvTranspose3d(512, 512,kernel_size=3,padding=1),
+        self.convt0 = nn.Sequential(nn.ConvTranspose3d(256,256,kernel_size=3,padding=1),
                                     nn.ReLU(),
-                                    nn.ConvTranspose3d(512,256,kernel_size=3,padding=1),
+                                    nn.ConvTranspose3d(256,256,kernel_size=3, padding=1),
+                                    nn.ReLU())
+        self.unpool0 = nn.MaxUnpool3d(kernel_size=(2,2,2),stride=(2,2,2))
+        self.convt1 = nn.Sequential(nn.ConvTranspose3d(256, 256,kernel_size=3,padding=1),
+                                    nn.ReLU(),
+                                    nn.ConvTranspose3d(256,256,kernel_size=3,padding=1),
                                     nn.ReLU())
         self.unpool2 = nn.MaxUnpool3d(kernel_size=(2,2,2),stride=(2,2,2))
         self.convt2 = nn.Sequential(nn.ConvTranspose3d(256,256,kernel_size=3, padding=1),
@@ -205,14 +232,14 @@ class AutoencoderB(nn.Module):
         self.convt3 = nn.Sequential(nn.ConvTranspose3d(128,64,kernel_size=3,padding=1),
                                     nn.ReLU())
         self.unpool4 = nn.MaxUnpool3d(kernel_size=(2,2,2),stride=(1,2,2))
-        self.convt1 = nn.Sequential(nn.ConvTranspose3d(kernel_size=3,padding=1),
+        self.convt4 = nn.Sequential(nn.ConvTranspose3d(64,1,kernel_size=3,padding=1),
                                     nn.ReLU())
 
     def encoder(self,x):
         indices = []
         output_size = []
-        convs = [self.conv1,self.conv2,self.conv3,self.conv4]
-        pools = [self.maxpool1, self.maxpool2,self.maxpool3,self.maxpool4]
+        convs = [self.conv1,self.conv2,self.conv3,self.conv4,self.conv5]
+        pools = [self.maxpool1, self.maxpool2,self.maxpool3,self.maxpool4,self.maxpool5]
         for conv, pool in zip(convs,pools):
             x = conv(x)
             output_size.append(x.size())
@@ -221,8 +248,8 @@ class AutoencoderB(nn.Module):
         return x, indices, output_size
 
     def decoder(self,x,indices,output_size):
-        convts = [self.convt1,self.convt2,self.convt3,self.convt4]
-        unpools = [self.munpool1, self.unpool2,self.unpool3,self.unpool4]
+        convts = [self.convt0, self.convt1,self.convt2,self.convt3,self.convt4]
+        unpools = [self.unpool1, self.unpool0, self.unpool2,self.unpool3,self.unpool4]
         for convt, unpool in zip(convts, unpools):
             x = unpool(x, indices=indices.pop(-1), output_size=output_size.pop(-1))
             x = F.relu(convt(x))
@@ -230,5 +257,6 @@ class AutoencoderB(nn.Module):
 
     def forward(self,x):
         x, indices, output_size = self.encoder(x)
+        print(x.shape)
         x = self.decoder(x, indices, output_size)
         return x

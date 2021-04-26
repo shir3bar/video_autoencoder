@@ -1,8 +1,9 @@
 import torch.nn.functional as F
 import torch.nn as nn
 ### An vanilla implementation of Ackay et al's GANomaly model to 3d convolutions
+
 class Encoder(nn.Module):
-    def __init__(self,color_channels=1, image_size=256, num_frames=74,ndf=64, nz=512, batchnorm=True):
+    def __init__(self,color_channels=1, image_size=256, num_frames=74,ndf=64, nz=256, batchnorm=True, DEPTH=4):
         super(Encoder, self).__init__()
         assert image_size % 16 == 0, "image_size has to be a multiple of 16"
         main = nn.Sequential()
@@ -12,10 +13,10 @@ class Encoder(nn.Module):
                         nn.LeakyReLU(0.2, inplace=True))
         csize, cndf = image_size/2, ndf
 
-        while csize > 8:
+        while csize > DEPTH:
             in_feat = cndf
             out_feat = cndf*2
-            if csize == image_size/2 and num_frames<129:
+            if csize > image_size/6 and num_frames<129:
                 # see note below
                 stride = (1,2,2)
             else:
@@ -49,12 +50,12 @@ class Encoder(nn.Module):
 
 class Decoder(nn.Module):
 
-    def __init__(self,color_channels=1, image_size=256 ,num_frames=74, ngf=64, nz=512, batchnorm=True):
+    def __init__(self,color_channels=1, image_size=256, num_frames=74, ngf=64, nz=256, batchnorm=True, DEPTH=4):
         super(Decoder, self).__init__()
         assert image_size % 16 == 0, "image_size has to be a multiple of 16"
 
         # get the number of filter at the first layer after the bottleneck:
-        cngf, tisize = ngf // 2, 8
+        cngf, tisize = ngf // 2, DEPTH
         while tisize != image_size:
             cngf = cngf * 2
             tisize = tisize * 2
@@ -67,9 +68,9 @@ class Decoder(nn.Module):
                             nn.BatchNorm3d(cngf))
         main.add_module(f'initial-{cngf}-relu',
                        nn.ReLU(True))
-        csize = 8
+        csize = DEPTH
         while csize < image_size//2:
-            if csize*2 == image_size//2 and num_frames<129:
+            if csize*2 > image_size//8 and num_frames<129:
                 stride = (1,2,2)
             else:
                 stride = 2
@@ -96,14 +97,15 @@ class Decoder(nn.Module):
 class Net(nn.Module):
     """ What is referred to as a generator network in the original repository"""
 
-    def __init__(self, color_channels=1, image_size=256, num_frames=129, initial_filters=64, nz=512, batchnorm=True):
+    def __init__(self, color_channels=1, image_size=256, num_frames=129, initial_filters=32, nz=2048, batchnorm=True):
         super(Net, self).__init__()
-        self.encoder1 = Encoder(color_channels,image_size,num_frames,initial_filters,nz,batchnorm)
-        self.decoder = Decoder(color_channels,image_size,num_frames,initial_filters,nz,batchnorm)
-        self.encoder2 = Encoder(color_channels,image_size,num_frames,initial_filters,nz,batchnorm)
+        DEPTH = 4
+        self.encoder1 = Encoder(color_channels,image_size,num_frames,initial_filters,nz,batchnorm,DEPTH)
+        self.decoder = Decoder(color_channels,image_size,num_frames,initial_filters,nz,batchnorm,DEPTH)
+        #self.encoder2 = Encoder(color_channels,image_size,num_frames,initial_filters,nz,batchnorm, DEPTH)
 
     def forward(self,x):
         z_in = self.encoder1(x)
         recon = self.decoder(z_in)
-        z_out = self.encoder2(recon)
-        return recon, z_in,  z_out
+        #z_out = self.encoder2(recon)
+        return recon #, z_in,  z_out

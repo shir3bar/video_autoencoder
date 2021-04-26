@@ -1,4 +1,4 @@
-from Net import Autoencoder, GANomaly, BN_Autoencoder,BN_GANomaly
+from Net import Autoencoder, GANomaly, BN_Autoencoder,BN_GANomaly, AutoencoderB
 from GANomaly_model import Net as GANomaly_real
 import argparse
 import torch.nn as nn
@@ -202,7 +202,7 @@ class ModelEvaluationPipeline:
                      transform=transforms.Compose(self.hyperparams['train_transforms']),
                      match_hists=self.hyperparams['match_hists'], color_channels=self.hyperparams['color_channels'])
         self.train_loader = DataLoader(self.train_ds, batch_size=self.hyperparams['batch_size'],
-                                       shuffle=True, num_workers=12)
+                                       shuffle=True, num_workers=4)
         self.val_loader = DataLoader(self.val_ds, batch_size=self.hyperparams['batch_size'],
                                      shuffle=False, num_workers=4)
         self.test_ds = VideoDataset(test_dir, num_frames=self.hyperparams['num_frames'],
@@ -320,7 +320,7 @@ class ModelEvaluationPipeline:
         plt.text(0.55, 0.2, f'Lowest Loss Model AUC score: {self.best_model_metrics["auc"]:.3f} \n '
                            f'Last Model AUC score: {self.last_model_metrics["auc"]:.3f} ')
         plt.legend()
-        #plt.savefig(os.path.join(self.save_dir, 'ROC.jpg'), dpi=200)
+        plt.savefig(os.path.join(self.save_dir, 'ROC.jpg'), dpi=200)
         plt.subplot(1, 2, 2)
         plt.plot(self.best_model_metrics['recall'], self.best_model_metrics['precision'],label='lowest loss model')
         plt.plot(self.last_model_metrics['recall'], self.last_model_metrics['precision'], label='last epoch model')
@@ -391,6 +391,9 @@ class ModelEvaluationPipeline:
                  'num_epochs', 'training_time','loss_func','learning_rate',
                  'weight_decay', 'batch_size','schedule', 'num_frames', 'match_hists','color_channels']]
         df.to_csv(os.path.join(self.save_dir,f'{self.hyperparams["model_name"]}_train_log.csv'))
+        file = open(os.path.join(self.save_dir,'architecture.txt'),'w+')
+        file.write(self.model.__repr__())
+        file.close()
 
     def __call__(self,evaluate,checkpoint=[],verbose=True):
         if torch.cuda.is_available():
@@ -410,17 +413,24 @@ class ModelEvaluationPipeline:
             best_checkpoint_path = os.path.join(self.save_dir,
                                                 'checkpoints',
                                                 f'{self.model._get_name()}_best.pt')
-            self.load_checkpoint(best_checkpoint_path)
-            print('Evaluating model.... ' + best_checkpoint_path)
-            self.evaluate_performance(write_results=False)
-            self.best_model_metrics = {'auc':self.auc_score, 'precision':self.precision,
-                                       'fpr': self.fpr,'tpr':self.tpr,'recall':self.recall}
+            if self.pipeline.best_epoch != (self.hyperparams['num_epochs']-1):
+                torch.cuda.empty_cache()
+                with torch.no_grad():
+                    self.load_checkpoint(best_checkpoint_path)
+                print('Evaluating model.... ' + best_checkpoint_path)
+                self.evaluate_performance(write_results=False)
+                self.best_model_metrics = {'auc':self.auc_score, 'precision':self.precision,
+                                           'fpr': self.fpr,'tpr':self.tpr,'recall':self.recall}
+            else:
+                self.best_model_metrics = self.last_model_metrics
 
             if self.last_model_metrics['auc']>self.auc_score:
                 best_checkpoint_path =  os.path.join(self.save_dir,
                                     'checkpoints',
                                     f'{self.model._get_name()}_final_epoch{self.hyperparams["num_epochs"]-1}.pt')
-                self.load_checkpoint(best_checkpoint_path)
+                torch.cuda.empty_cache()
+                with torch.no_grad():
+                    self.load_checkpoint(best_checkpoint_path)
                 new_name =  os.path.join(self.save_dir,
                                     'checkpoints', f'{self.model._get_name()}_final_best.pt')
                 os.rename(best_checkpoint_path,new_name)
@@ -484,6 +494,8 @@ if __name__ == '__main__':
     #print(args)
     if hyperparameters['model_type'] == 'autoencoder':
         model = Autoencoder(color_channels=args.color_channels)
+        #model = GANomaly_real(color_channels=args.color_channels, num_frames=hyperparameters['num_frames'],
+        #                      batchnorm=True)
         hyperparameters['loss_weights'] = np.NaN
     elif hyperparameters['model_type'] == 'bn_autoencoder':
         model = BN_Autoencoder(color_channels=args.color_channels)
@@ -494,7 +506,7 @@ if __name__ == '__main__':
         model = BN_GANomaly(color_channels=args.color_channels)
         hyperparameters['model_name'] = f'bn_ganomaly{datetime.now().strftime("%d%m%y")}'
     elif hyperparameters['model_type'] == 'ganomaly':
-        model = GANomaly_real(color_channels=args.color_channels,num_frames=hyperparameters['num_frames'])
+        model = GANomaly_real(color_channels=args.color_channels,num_frames=hyperparameters['num_frames'],batchnorm=False)
         if hyperparameters['model_name'].startswith('ae'):
             hyperparameters['model_name'] = f'ganomaly_{datetime.now().strftime("%d%m%y")}'
     else:
