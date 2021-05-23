@@ -50,7 +50,7 @@ class Autoencoder(nn.Module):
         indices.append(index)
         x = F.relu(self.conv3(x))
         output_size.append(x.size())
-        x, index = F.max_pool3d(x,kernel_size=(2, 2, 2), stride=(1,2,2),return_indices=True)
+        x, index = F.max_pool3d(x,kernel_size=(2, 2, 2), stride=(2,2,2),return_indices=True)
         indices.append(index)
         x = F.relu(self.conv4(x))
         output_size.append(x.size())
@@ -79,7 +79,7 @@ class Autoencoder(nn.Module):
         x = F.relu(self.convt3(x))
         x = F.max_unpool3d(x, indices=indices.pop(-1),kernel_size=(2, 2, 2), stride=(2,2,2), output_size=output_size.pop(-1))
         x = F.relu(self.convt4(x))
-        x = F.max_unpool3d(x, indices=indices.pop(-1), kernel_size=(2, 2, 2), stride=(1,2,2), output_size=output_size.pop(-1))
+        x = F.max_unpool3d(x, indices=indices.pop(-1), kernel_size=(2, 2, 2), stride=(2,2,2), output_size=output_size.pop(-1))
         x = F.relu(self.convt5(x))
         x = F.max_unpool3d(x, indices=indices.pop(-1), kernel_size=(2, 2, 2), stride=(1,2,2), output_size=output_size.pop(-1))
         x = F.relu(self.convt6(x))
@@ -260,3 +260,5 @@ class AutoencoderB(nn.Module):
         print(x.shape)
         x = self.decoder(x, indices, output_size)
         return x
+
+

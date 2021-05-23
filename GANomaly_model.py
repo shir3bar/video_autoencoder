@@ -1,6 +1,46 @@
 import torch.nn.functional as F
 import torch.nn as nn
 ### An vanilla implementation of Ackay et al's GANomaly model to 3d convolutions
+class GAN_Autoencoder(nn.Module):
+    def __init__(self,color_channels=1,initial_filters=32,nz=2048):
+        super(GAN_Autoencoder, self).__init__()
+        main = nn.Sequential()
+
+        self.conv1 = nn.Conv3d(color_channels,initial_filters, kernel_size=4,stride=(1,2,2),padding=1)
+        self.conv2 = nn.Conv3d(initial_filters, initial_filters*2, kernel_size=4, stride=(1,2,2),padding=1)
+        self.conv3 = nn.Conv3d(initial_filters*2,initial_filters*2**2, kernel_size=4, stride=(1,2,2), padding=1)
+        self.conv4 = nn.Conv3d(initial_filters*2**2,initial_filters*2**3,kernel_size=4,stride=2,padding=1)
+        self.conv5 = nn.Conv3d(initial_filters*2**3, initial_filters*2**4,kernel_size=4,stride=2,padding=1)
+        self.conv6 = nn.Conv3d(initial_filters*2**4, initial_filters*2**5, kernel_size=4, stride=2, padding=1)
+        self.conv7= nn.Conv3d(initial_filters*2**5,nz,kernel_size=4,stride=1,padding=0)
+        self.convt1 = nn.ConvTranspose3d(nz, initial_filters*2**5, kernel_size=4,stride=1,padding=0)
+        self.convt2 = nn.ConvTranspose3d(initial_filters*2**5, initial_filters*2**4,kernel_size=4,stride=2,padding=1)
+        self.convt3 = nn.ConvTranspose3d(initial_filters*2**4, initial_filters*2**3, kernel_size=4, stride=2, padding=1)
+        self.convt4 = nn.ConvTranspose3d(initial_filters*2**3,initial_filters*2**2, kernel_size=4, stride=2, padding=1)
+        self.convt5 = nn.ConvTranspose3d(initial_filters*2**2, initial_filters*2, kernel_size=4, stride=(1,2,2), padding=1)
+        self.convt6 = nn.ConvTranspose3d(initial_filters*2, initial_filters, kernel_size=4, stride=(1,2,2), padding=1)
+        self.convt7 = nn.ConvTranspose3d(initial_filters, color_channels, kernel_size=4, stride=(1,2,2), padding=1)
+
+    def encoder(self,x):
+        convs = [self.conv1,self.conv2,self.conv3,self.conv4,self.conv5, self.conv6]#,self.conv7]
+        for conv in convs:
+            x = conv(x)
+            x = F.leaky_relu(x,0.2,inplace=True)
+        x = self.conv7(x)
+        return x
+
+    def decoder(self,x):
+        convts = [self.convt1,self.convt2,self.convt3,self.convt4,self.convt5, self.convt6, self.convt7]
+        for convt in convts:
+            x = convt(x)
+            x = F.relu(x,inplace=True)
+        return x
+
+    def forward(self,x):
+        z_in = self.encoder(x)
+        img_out = self.decoder(z_in)
+        return img_out
+
 
 class Encoder(nn.Module):
     def __init__(self,color_channels=1, image_size=256, num_frames=74,ndf=64, nz=256, batchnorm=True, DEPTH=4):
@@ -97,7 +137,7 @@ class Decoder(nn.Module):
 class Net(nn.Module):
     """ What is referred to as a generator network in the original repository"""
 
-    def __init__(self, color_channels=1, image_size=256, num_frames=129, initial_filters=32, nz=2048, batchnorm=True):
+    def __init__(self, color_channels=1, image_size=256, num_frames=129, initial_filters=32, nz=4096, batchnorm=True):
         super(Net, self).__init__()
         DEPTH = 4
         self.encoder1 = Encoder(color_channels,image_size,num_frames,initial_filters,nz,batchnorm,DEPTH)

@@ -1,5 +1,5 @@
 from Net import Autoencoder, GANomaly, BN_Autoencoder,BN_GANomaly, AutoencoderB
-from GANomaly_model import Net as GANomaly_real
+from GANomaly_model import GAN_Autoencoder as GANomaly_autoencoder
 import argparse
 import torch.nn as nn
 import pandas as pd
@@ -312,17 +312,17 @@ class ModelEvaluationPipeline:
     def roc_plots(self):
         plt.figure(figsize=(15, 5))
         plt.subplot(1, 2, 1)
-        plt.plot(self.best_model_metrics['fpr'], self.best_model_metrics['tpr'], label='lowest loss model')
+       # plt.plot(self.best_model_metrics['fpr'], self.best_model_metrics['tpr'], label='lowest loss model')
         plt.plot(self.last_model_metrics['fpr'], self.last_model_metrics['tpr'], label='last epoch model')
         plt.ylabel('tpr')
         plt.xlabel('fpr')
         plt.title('ROC Curve')
-        plt.text(0.55, 0.2, f'Lowest Loss Model AUC score: {self.best_model_metrics["auc"]:.3f} \n '
-                           f'Last Model AUC score: {self.last_model_metrics["auc"]:.3f} ')
+       # plt.text(0.55, 0.2, f'Lowest Loss Model AUC score: {self.best_model_metrics["auc"]:.3f} \n '
+       #                    f'Last Model AUC score: {self.last_model_metrics["auc"]:.3f} ')
         plt.legend()
         plt.savefig(os.path.join(self.save_dir, 'ROC.jpg'), dpi=200)
         plt.subplot(1, 2, 2)
-        plt.plot(self.best_model_metrics['recall'], self.best_model_metrics['precision'],label='lowest loss model')
+       # plt.plot(self.best_model_metrics['recall'], self.best_model_metrics['precision'],label='lowest loss model')
         plt.plot(self.last_model_metrics['recall'], self.last_model_metrics['precision'], label='last epoch model')
         plt.ylabel('Recall')
         plt.xlabel('Precision')
@@ -382,12 +382,12 @@ class ModelEvaluationPipeline:
         model_params['val_size'] = len(self.val_ds)
         model_params['test_size'] = len(self.test_ds)
         model_params['loss_weights'] = self.hyperparams['loss_weights']
-        model_params['best_epoch'] = self.pipeline.best_epoch
-        model_params['best_model_auc'] = self.best_model_metrics['auc']
+        #model_params['best_epoch'] = self.pipeline.best_epoch
+       # model_params['best_model_auc'] = self.best_model_metrics['auc']
         model_params['last_model_auc'] = self.last_model_metrics['auc']
         df = pd.DataFrame([model_params])
         df = df[['model_name','datetime','loss_weights','dataset_name','train_size','val_size', 'test_size',
-                 'last_model_auc', 'best_model_auc','best_epoch',
+                 'last_model_auc', #'best_model_auc','best_epoch',
                  'num_epochs', 'training_time','loss_func','learning_rate',
                  'weight_decay', 'batch_size','schedule', 'num_frames', 'match_hists','color_channels']]
         df.to_csv(os.path.join(self.save_dir,f'{self.hyperparams["model_name"]}_train_log.csv'))
@@ -410,31 +410,31 @@ class ModelEvaluationPipeline:
             self.evaluate_performance(write_results=False)
             self.last_model_metrics = {'auc':self.auc_score, 'precision':self.precision,
                                        'fpr': self.fpr,'tpr':self.tpr, 'recall':self.recall}
-            best_checkpoint_path = os.path.join(self.save_dir,
-                                                'checkpoints',
-                                                f'{self.model._get_name()}_best.pt')
-            if self.pipeline.best_epoch != (self.hyperparams['num_epochs']-1):
-                torch.cuda.empty_cache()
-                with torch.no_grad():
-                    self.load_checkpoint(best_checkpoint_path)
-                print('Evaluating model.... ' + best_checkpoint_path)
-                self.evaluate_performance(write_results=False)
-                self.best_model_metrics = {'auc':self.auc_score, 'precision':self.precision,
-                                           'fpr': self.fpr,'tpr':self.tpr,'recall':self.recall}
-            else:
-                self.best_model_metrics = self.last_model_metrics
-
-            if self.last_model_metrics['auc']>self.auc_score:
-                best_checkpoint_path =  os.path.join(self.save_dir,
-                                    'checkpoints',
-                                    f'{self.model._get_name()}_final_epoch{self.hyperparams["num_epochs"]-1}.pt')
-                torch.cuda.empty_cache()
-                with torch.no_grad():
-                    self.load_checkpoint(best_checkpoint_path)
-                new_name =  os.path.join(self.save_dir,
-                                    'checkpoints', f'{self.model._get_name()}_final_best.pt')
-                os.rename(best_checkpoint_path,new_name)
-            print('Writing results with model.... ' + best_checkpoint_path)
+            # best_checkpoint_path = os.path.join(self.save_dir,
+            #                                     'checkpoints',
+            #                                     f'{self.model._get_name()}_best.pt')
+            # if self.pipeline.best_epoch != (self.hyperparams['num_epochs']-1):
+            #     torch.cuda.empty_cache()
+            #     with torch.no_grad():
+            #         self.load_checkpoint(best_checkpoint_path)
+            #     print('Evaluating model.... ' + best_checkpoint_path)
+            #     self.evaluate_performance(write_results=False)
+            #     self.best_model_metrics = {'auc':self.auc_score, 'precision':self.precision,
+            #                                'fpr': self.fpr,'tpr':self.tpr,'recall':self.recall}
+            # else:
+            #     self.best_model_metrics = self.last_model_metrics
+            #
+            # if self.last_model_metrics['auc']>self.auc_score:
+            #     best_checkpoint_path =  os.path.join(self.save_dir,
+            #                         'checkpoints',
+            #                         f'{self.model._get_name()}_final_epoch{self.hyperparams["num_epochs"]-1}.pt')
+            #     torch.cuda.empty_cache()
+            #     with torch.no_grad():
+            #         self.load_checkpoint(best_checkpoint_path)
+            #     new_name =  os.path.join(self.save_dir,
+            #                         'checkpoints', f'{self.model._get_name()}_final_best.pt')
+            #     os.rename(best_checkpoint_path,new_name)
+            # print('Writing results with model.... ' + best_checkpoint_path)
             self.evaluate_performance(write_results=True)
             self.roc_plots()
         self.log_session(train_time)
@@ -493,7 +493,8 @@ if __name__ == '__main__':
     hyperparameters['test_transforms'] = test_transforms
     #print(args)
     if hyperparameters['model_type'] == 'autoencoder':
-        model = Autoencoder(color_channels=args.color_channels)
+        #model = Autoencoder(color_channels=args.color_channels)
+        model = GANomaly_autoencoder(color_channels=args.color_channels)
         #model = GANomaly_real(color_channels=args.color_channels, num_frames=hyperparameters['num_frames'],
         #                      batchnorm=True)
         hyperparameters['loss_weights'] = np.NaN
