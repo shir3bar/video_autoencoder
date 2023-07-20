@@ -14,6 +14,21 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 import json
 import os
+import sys
+sys.path.append('/media/shirbar/DATA/codes/SlowFast')
+from slowfast.models.ptv_model_builder import PTVResNetAutoencoder
+from slowfast.utils.parser import load_config
+from slowfast.config.defaults import assert_and_infer_cfg
+
+class Args:
+    def __init__(self, cfg_file):
+        self.cfg_file = cfg_file
+        self.shard_id = 0
+        self.num_shards = 1
+        self.init_method = 'tcp://localhost:9999'
+        self.opts = None
+
+
 
 
 class BaseAE():
@@ -129,7 +144,42 @@ class GanomalyAE(BaseAE):
         else:
             return running_loss,img_out
 
+class ResNetAE(BaseAE):
+    def __init__(self,net,dataloaders,optimizer,recon_loss,save_dir,loss_weights={'l_recon':1,'l_lap':500},scheduler=False,verbose=False,save_every=10):
+        super().__init__(net,dataloaders,optimizer,recon_loss,save_dir,scheduler,verbose,save_every)
+        self.lap_loss = nn.MSELoss()
+        seven_pt_stencil = torch.tensor([[[0, 0, 0],
+                                          [0, 1, 0],
+                                          [0, 0, 0]],
+                                         [[0, 1, 0],
+                                          [1, -6, 1],
+                                          [0, 1, 0]],
+                                         [[0, 0, 0],
+                                          [0, 1, 0],
+                                          [0, 0, 0]]])
+        self.laplacian = nn.Conv3d(1, 1, kernel_size=3, stride=1, padding=1, bias=False)
+        self.laplacian.weight = nn.Parameter(seven_pt_stencil.unsqueeze(0).unsqueeze(0).float())
+        self.laplacian.to('cuda')
+        self.laplacian.eval()
+        self.loss = lambda img_in,img_out,lap_in,lap_out: \
+            loss_weights['l_lap']*self.lap_loss(lap_out,lap_in) + \
+            loss_weights['l_recon']*self.recon_loss(img_out, img_in)
+        self.loss_weights = loss_weights
 
+
+    def calc_loss(self, clips,validate=False,test=False):
+        img_out = self.model([clips])
+        with torch.no_grad():
+            lap_in = self.laplacian(img_out)
+            lap_out = self.laplacian(clips)
+        loss = self.loss(clips, img_out,lap_in,lap_out)
+        if not validate:
+            loss.backward()
+        running_loss = loss.item() * clips.size(0)
+        if not test:
+            return running_loss
+        else:
+            return running_loss,img_out
 
 class ModelEvaluationPipeline:
     def __init__(self, model, ds_dir,feed_dir,save_dir,hyperparams,checkpoint=[],load=False,
@@ -185,6 +235,14 @@ class ModelEvaluationPipeline:
                                        loss_weights=self.hyperparams['loss_weights'],
                                        scheduler=self.scheduler,
                                        verbose=self.hyperparams['verbose'], save_every=10)
+
+        elif 'resnet' in self.hyperparams['model_type']:
+            print('Loading a ResNet type pipeline')
+            self.pipeline = ResNetAE(self.model,{'train':self.train_loader,'validation':self.val_loader},
+                                       self.optimizer,criterion,self.save_dir,
+                                       loss_weights=self.hyperparams['loss_weights'],
+                                       scheduler=self.scheduler,
+                                       verbose=self.hyperparams['verbose'], save_every=10)
         else:
             self.pipeline = BaseAE(self.model,{'train':self.train_loader,'validation':self.val_loader},
                                        self.optimizer, criterion, self.save_dir,
@@ -193,7 +251,7 @@ class ModelEvaluationPipeline:
 
     def prep_loaders(self):
         train_dir = os.path.join(self.dataset_dir,'train')
-        val_dir = os.path.join(self.dataset_dir, 'validation')
+        val_dir = os.path.join(self.dataset_dir, 'val')
         test_dir = os.path.join(self.dataset_dir,'test')
         self.train_ds = VideoDataset(train_dir, num_frames=self.hyperparams['num_frames'],
                      transform=transforms.Compose(self.hyperparams['train_transforms']),
@@ -324,8 +382,8 @@ class ModelEvaluationPipeline:
         plt.subplot(1, 2, 2)
        # plt.plot(self.best_model_metrics['recall'], self.best_model_metrics['precision'],label='lowest loss model')
         plt.plot(self.last_model_metrics['recall'], self.last_model_metrics['precision'], label='last epoch model')
-        plt.ylabel('Recall')
-        plt.xlabel('Precision')
+        plt.xlabel('Recall')
+        plt.ylabel('Precision')
         plt.title('Precision-Recall Curve')
         plt.legend()
         plt.savefig(os.path.join(self.save_dir, f'{self.hyperparams["model_name"]}ROC-PR.jpg'), dpi=200)
@@ -443,7 +501,8 @@ class ModelEvaluationPipeline:
 
 if __name__ == '__main__':
     parameters = ['num_epochs', 'learning_rate', 'weight_decay', 'batch_size', 'loss_func','schedule','loss_weights',
-                        'model_type','model_name', 'num_frames', 'match_hists','color_channels','verbose','optimizer']
+                        'model_type','model_name', 'num_frames', 'match_hists','color_channels','verbose','optimizer',
+                  'cfg']
 
     # [Rescale(256), RandomHorizontalFlip(0.5), RandomVerticalFlip(0.3), ToTensor()]),
     parser = argparse.ArgumentParser()
@@ -451,7 +510,8 @@ if __name__ == '__main__':
     parser.add_argument('feed_dir', help='enter feed dataset path')
     parser.add_argument('save_dir', help='enter save dataset path')
     parser.add_argument('-model_type', type=str, default='autoencoder', choices=['autoencoder','ganomaly',
-                                                                                 'bn_autoencoder','bn_ganomaly'])
+                                                                                 'bn_autoencoder','bn_ganomaly',
+                                                                                 'resnet'])
     parser.add_argument('-epochs', '--num_epochs', type=int, default=200, help='number of training epochs')
     parser.add_argument('-lr','--learning_rate',type=float, default=1e-3, help='optimizer learning rate')
     parser.add_argument('-weight_decay', type=float, default=1e-5, help='weight decay for optimization')
@@ -474,6 +534,7 @@ if __name__ == '__main__':
     parser.add_argument("-loss_weights", type=json.loads, default={'l_enc':1,'l_recon':50}, help='loss weights for ganomaly default {l_enc:1,l_rec:50}')
     parser.add_argument('-load_weights', action='store_true',help='should weight initialization be loaded')
     parser.add_argument('-weight_dir', type=str, default='', help='path for weights to initialize')
+    parser.add_argument('-cfg', type=str, default='', help='path to cfg for ResNet Autoencdoer')
     args = parser.parse_args()
     train_transforms = []
     test_transforms = []
@@ -493,8 +554,8 @@ if __name__ == '__main__':
     hyperparameters['test_transforms'] = test_transforms
     #print(args)
     if hyperparameters['model_type'] == 'autoencoder':
-        #model = Autoencoder(color_channels=args.color_channels)
-        model = GANomaly_autoencoder(color_channels=args.color_channels)
+        model = Autoencoder(color_channels=args.color_channels)
+        #model = GANomaly_autoencoder(color_channels=args.color_channels)
         #model = GANomaly_real(color_channels=args.color_channels, num_frames=hyperparameters['num_frames'],
         #                      batchnorm=True)
         hyperparameters['loss_weights'] = np.NaN
@@ -502,14 +563,19 @@ if __name__ == '__main__':
         model = BN_Autoencoder(color_channels=args.color_channels)
         hyperparameters['loss_weights'] = np.NaN
         hyperparameters['model_name'] = f'bn_autoencoder_{datetime.now().strftime("%d%m%y")}'
-
     elif hyperparameters['model_type'] == 'bn_ganomaly':
         model = BN_GANomaly(color_channels=args.color_channels)
         hyperparameters['model_name'] = f'bn_ganomaly{datetime.now().strftime("%d%m%y")}'
-    elif hyperparameters['model_type'] == 'ganomaly':
-        model = GANomaly_real(color_channels=args.color_channels,num_frames=hyperparameters['num_frames'],batchnorm=False)
-        if hyperparameters['model_name'].startswith('ae'):
-            hyperparameters['model_name'] = f'ganomaly_{datetime.now().strftime("%d%m%y")}'
+    #elif hyperparameters['model_type'] == 'ganomaly':
+        #model = GANomaly_real(color_channels=args.color_channels,num_frames=hyperparameters['num_frames'],batchnorm=False)
+    #    if hyperparameters['model_name'].startswith('ae'):
+    #        hyperparameters['model_name'] = f'ganomaly_{datetime.now().strftime("%d%m%y")}'
+    elif hyperparameters['model_type'] == 'resnet':
+        arg = Args(hyperparameters['cfg'])
+        cfg = load_config(arg)
+        cfg = assert_and_infer_cfg(cfg)
+        model = PTVResNetAutoencoder(cfg)
+        hyperparameters['model_name'] = f'resnet_ae_{datetime.now().strftime("%d%m%y")}'
     else:
         raise Exception('Model type not supported')
     print(hyperparameters)
